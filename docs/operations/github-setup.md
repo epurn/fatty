@@ -8,12 +8,11 @@ enforcement.
 The first commit must include:
 
 - `.github/workflows/governance.yml`
-- `.github/workflows/reviewer-gate.yml`
 
 Required status checks on `main`:
 
 - `governance`
-- `separate-reviewer`
+- `reviewer-approved`
 
 ## Branch Protection
 
@@ -24,17 +23,17 @@ Configure `main` with:
 - require status checks before merging,
 - require branches to be up to date before merging,
 - require the `governance` status check,
-- require the `separate-reviewer` status check,
+- require the `reviewer-approved` status check,
 - keep native required approving review count at zero for the app-reviewer flow,
 - block force pushes,
 - block deletions,
 - include administrators when practical.
 
-Fatty enforces non-author review with the required `separate-reviewer`
-workflow. The workflow checks for an approval from an eligible reviewer on the
-current PR head SHA. The custom status check is the merge gate because GitHub's
-native required-review rule may not count approvals submitted by the
-`fatty-reviewer` app as eligible native approvals.
+Fatty enforces non-author review with the required `reviewer-approved` commit
+status published by the reviewer agent. The status may pass only after approval
+from an eligible reviewer on the current PR head SHA. This custom status is the
+merge gate because GitHub's native required-review rule may not count approvals
+submitted by the `fatty-reviewer` app as eligible native approvals.
 
 ## GitHub CLI Setup
 
@@ -64,6 +63,6 @@ When branch protection is available:
 9. Enable required status checks.
 10. Require branches to be up to date before merging.
 11. Require `governance`.
-12. Require `separate-reviewer`.
+12. Require `reviewer-approved`.
 13. Block force pushes and deletions.
 14. Apply to administrators if the plan allows it.

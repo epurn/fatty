@@ -25,7 +25,6 @@ REQUIRED_FILES = [
     ".github/CODEOWNERS",
     ".github/pull_request_template.md",
     ".github/workflows/governance.yml",
-    ".github/workflows/reviewer-gate.yml",
     ".github/dependabot.yml",
     "docs/architecture/system-overview.md",
     "docs/standards/coding-standards.md",
@@ -150,12 +149,12 @@ def main() -> None:
             fail(f"review checklist must include {term!r}")
 
     github_setup = read("docs/operations/github-setup.md").lower()
-    for term in ["required native approving reviews to zero", "app-reviewer flow", "separate-reviewer"]:
+    for term in ["required native approving reviews to zero", "app-reviewer flow", "reviewer-approved"]:
         if term not in github_setup:
             fail(f"github setup must document {term!r}")
 
     branching = read("docs/operations/branching-and-prs.md").lower()
-    for term in ["native required approving review count at zero", "app-reviewer flow", "separate-reviewer"]:
+    for term in ["native required approving review count at zero", "app-reviewer flow", "reviewer-approved"]:
         if term not in branching:
             fail(f"branching docs must document {term!r}")
 
@@ -176,14 +175,14 @@ def main() -> None:
             fail(f"ready roadmap row links to missing story file: {match.group(1)}")
         validate_ready_story_metadata(str(story_path.relative_to(ROOT)))
 
-    reviewer_gate = read(".github/workflows/reviewer-gate.yml")
-    for term in ["review.commit_id === pr.head.sha", "review.user.login !== pr.user.login"]:
-        if term not in reviewer_gate:
-            fail(f"reviewer gate must include {term!r}")
+    review_policy = read("docs/review-policy.md")
+    for term in ["reviewer-approved", "current PR head SHA", "other than the PR author"]:
+        if term not in review_policy:
+            fail(f"review policy must document reviewer status gate term {term!r}")
 
     protection = json.loads(read("docs/operations/main-branch-protection.json"))
     checks = protection.get("required_status_checks", {}).get("contexts", [])
-    for check in ["governance", "separate-reviewer"]:
+    for check in ["governance", "reviewer-approved"]:
         if check not in checks:
             fail(f"branch protection template must require {check!r}")
     required_reviews = protection.get("required_pull_request_reviews")

@@ -41,13 +41,13 @@ The reviewer should prioritize:
 
 ## Automated Gate
 
-The `reviewer-gate` GitHub workflow checks that at least one approval exists on
-the current PR head SHA from an eligible reviewer other than the PR author.
-Branch protection should require this workflow as the authoritative separate
-review gate. Do not also require a native GitHub approving review for this
-self-hosted app-reviewer flow: GitHub may not count the `fatty-reviewer` app's
-approval as an eligible native review even when the custom gate correctly
-accepts it.
+The reviewer agent publishes a required `reviewer-approved` commit status for
+the current PR head SHA. The status may pass only after an eligible reviewer
+other than the PR author approves that exact head. Branch protection should
+require this status as the authoritative separate review gate. Do not also
+require a native GitHub approving review for this self-hosted app-reviewer flow:
+GitHub may not count the `fatty-reviewer` app's approval as an eligible native
+review even when the custom gate correctly accepts it.
 
 Long term, reviewer enforcement can move from repository workflow code to an
 external required status or check owned by trusted project infrastructure.

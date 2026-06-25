@@ -57,15 +57,15 @@ Configure GitHub `main` with:
 - require conversation resolution,
 - require status checks:
   - `governance`,
-  - `separate-reviewer`,
+  - `reviewer-approved`,
   - future backend/mobile/security checks,
 - block force pushes,
 - block deletions,
 - apply rules to administrators where practical.
 
-The `separate-reviewer` status check is the automated non-author review gate.
-It must evaluate approval on the current PR head SHA. This custom check is the
-required reviewer gate because GitHub's native required-review rule may not
+The `reviewer-approved` commit status is the automated non-author review gate.
+The reviewer agent sets it for the current PR head SHA. This custom status is
+the required reviewer gate because GitHub's native required-review rule may not
 count approvals submitted by the `fatty-reviewer` app as eligible native
 approvals.
 
