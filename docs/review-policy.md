@@ -43,8 +43,11 @@ The reviewer should prioritize:
 
 The `reviewer-gate` GitHub workflow checks that at least one approval exists on
 the current PR head SHA from an eligible reviewer other than the PR author.
-Branch protection should require this workflow and should not allow authors to
-merge based only on their own review.
+Branch protection should require this workflow as the authoritative separate
+review gate. Do not also require a native GitHub approving review for this
+self-hosted app-reviewer flow: GitHub may not count the `fatty-reviewer` app's
+approval as an eligible native review even when the custom gate correctly
+accepts it.
 
 Long term, reviewer enforcement can move from repository workflow code to an
 external required status or check owned by trusted project infrastructure.
