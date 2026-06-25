@@ -97,12 +97,12 @@ def main() -> None:
         fail("review policy must require a separate reviewer")
 
     roadmap = read("docs/stories/v1-roadmap.md")
-    for term in ["FTY-010", "ready", "Milestone 1"]:
+    for term in ["FTY-010", "ready", "Milestone 1", "Lane", "backend-core", "mobile-core", "estimator"]:
         if term not in roadmap:
             fail(f"v1 roadmap must include {term!r}")
 
     author_loop = read("docs/operations/author-agent-loop.md").lower()
-    for term in ["requested changes", "reviewer agent", "next `ready` story"]:
+    for term in ["requested changes", "reviewer agent", "next `ready` story", "parallel work lanes", "origin/main"]:
         if term not in author_loop:
             fail(f"author-agent loop must include {term!r}")
 

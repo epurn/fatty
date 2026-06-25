@@ -15,10 +15,13 @@ The author agent must not approve its own PR.
 1. Inspect open PRs first.
 2. If any PR has requested changes, fix the highest-priority rejected PR before starting new work.
 3. If CI is failing for an authored PR, debug and fix that PR.
-4. If PRs are waiting only for reviewer approval, leave them alone unless stale.
-5. If there is no active blocked PR, choose the next `ready` story from `docs/stories/v1-roadmap.md`.
-6. Implement one thin slice on a story branch.
-7. Open a PR and allow the reviewer agent to run.
+4. If PRs are waiting only for reviewer approval, do not sit idle.
+5. Choose the next `ready` story from `docs/stories/v1-roadmap.md` that does not conflict with open PRs.
+6. Start that story from current `origin/main`, not from another unmerged story branch.
+7. Implement one thin slice on a story branch.
+8. Open a PR and allow the reviewer agent to run.
+
+Waiting for review is normal queue time. The author agent should keep building independent slices while the reviewer agent evaluates already-open PRs.
 
 ## PR Rejection Monitor
 
@@ -46,7 +49,50 @@ New work may start only when:
 - no authored PR has requested changes,
 - no authored PR has failing CI that the author can fix,
 - the next story is marked `ready`,
-- the story has acceptance criteria.
+- the story has acceptance criteria,
+- the story's lane does not overlap with open unmerged PRs.
+
+New work must start from `origin/main`:
+
+```sh
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git switch -c story/<id>-<slug>
+```
+
+If local checkout state prevents switching safely, stop and report the blocker instead of rebasing unrelated work.
+
+## Parallel Work Lanes
+
+Use lanes to avoid accidental conflicts. Only one open PR should actively edit a lane's ownership files unless the later PR is explicitly a fix for the earlier PR.
+
+| Lane | Ownership | Examples |
+| --- | --- | --- |
+| `governance` | Agent rules, workflows, story process, review policy | `AGENTS.md`, `agents/`, `.github/`, `docs/operations/`, `docs/stories/` |
+| `backend-core` | FastAPI app, config, service layout, health checks | `apps/api/`, backend tests, backend tooling |
+| `mobile-core` | Expo app shell, navigation, iOS UI primitives | `apps/mobile/`, mobile tests, mobile tooling |
+| `contracts` | API schemas, DTOs, job payloads, estimator schemas | `docs/contracts/`, shared contract packages |
+| `infra` | Docker Compose, database, Redis, Celery, migrations tooling | `compose.yaml`, `infra/`, deployment docs |
+| `estimator` | LLM provider config, estimator jobs, nutrition/exercise calculators | estimator packages, provider adapters, calculator tests |
+| `security-privacy` | Threat model, retention, auth controls, hardening tests | `docs/security/`, security tests, auth policy |
+
+Lane rules:
+
+- If an open PR touches a lane, choose a story from another lane while it waits for review.
+- If a story needs two lanes, declare both in the PR and avoid starting other stories in either lane.
+- Cross-lane contracts should be added before dependent implementation when possible.
+- Dependency upgrades are their own lane unless required by the story.
+
+## Conflict Check
+
+Before starting a new story:
+
+1. List open PR files with `gh pr diff --name-only` or GitHub PR metadata.
+2. Identify each open PR's lane from changed paths.
+3. Identify the candidate story's lane from `docs/stories/v1-roadmap.md`.
+4. Skip candidates whose lane overlaps with open unmerged PRs.
+5. Prefer the next ready story in a different lane.
 
 ## Story Source
 
@@ -64,3 +110,4 @@ Use:
 
 A recurring Codex automation should periodically check PR state and continue this loop. It should not bypass review gates, approve its own PRs, or merge directly.
 
+Automation may continue building independent `ready` stories while earlier PRs wait for review. It must fix rejected or failing PRs before starting additional new stories.

@@ -37,6 +37,27 @@ Move Fatty toward v1 through thin, reviewable vertical slices. A slice should pr
 9. If review requests changes, fix them on the same branch and push.
 10. When approved and green, use GitHub native auto-merge when allowed.
 
+If another PR is only waiting for review, continue with the next non-conflicting ready story from `origin/main`. Do not stack feature branches on top of unmerged feature branches.
+
+## Parallel Slice Selection
+
+Before picking a story:
+
+- Check open PRs and changed files.
+- Map each PR to a work lane.
+- Skip candidate stories in lanes already touched by open PRs.
+- Prefer stories that create stable contracts or independent package skeletons.
+
+Recommended lane order for early v1 parallelism:
+
+1. `governance`: author loop, roadmap, review policy.
+2. `contracts`: shared API/job/domain contracts.
+3. `backend-core`: FastAPI app skeleton.
+4. `mobile-core`: Expo app skeleton.
+5. `infra`: Docker Compose and service wiring.
+6. `estimator`: provider config and calculators.
+7. `security-privacy`: hardening and adversarial tests.
+
 ## Rejection Handling
 
 When a PR is rejected:
@@ -47,4 +68,3 @@ When a PR is rejected:
 - Add or update tests that would have caught the issue.
 - Reply in the PR with what changed.
 - Do not argue with the reviewer by default; improve the code or clarify with evidence.
-
