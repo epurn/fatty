@@ -30,11 +30,12 @@ usual silent failures:
 
 ## Start everything
 
-Verifies each agent, installs/loads the steward + reviewer launch agents, and
-tails logs:
+Orchestrated from the command centre — verifies each agent, then installs/loads
+the reviewer + steward launch agents via each agent's own installer, and tails
+logs:
 
 ```sh
-( cd fatty-steward-agent && make run-all-agents )
+./scripts/agents-up.sh
 ```
 
 ## Stop everything
@@ -42,14 +43,13 @@ tails logs:
 Unloads the launch agents and kills any running runner processes:
 
 ```sh
-( cd fatty-steward-agent && make stop-all-agents )
+./scripts/agents-down.sh
 ```
 
 ## Reload (after editing .env or code)
 
 ```sh
-( cd fatty-steward-agent && make stop-all-agents )
-( cd fatty-steward-agent && make run-all-agents )
+./scripts/agents-down.sh && ./scripts/agents-up.sh
 ```
 
 ## Single service, foreground (debugging)

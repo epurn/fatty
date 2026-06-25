@@ -40,11 +40,11 @@ detail in `docs/agent-operating-system.md`.
 You own start/stop/observe. The planner prepares work; it never runs services.
 
 ```sh
-# Start the steward + reviewer pollers and tail logs
-( cd fatty-steward-agent && make run-all-agents )
+# Start the steward + reviewer pollers and tail logs (command-centre orchestration)
+./scripts/agents-up.sh
 
 # Stop all agent processes
-( cd fatty-steward-agent && make stop-all-agents )
+./scripts/agents-down.sh
 
 # Health-check any agent (tools, GitHub App token)
 ( cd fatty-author-agent && make doctor )
