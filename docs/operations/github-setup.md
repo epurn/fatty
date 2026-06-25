@@ -24,12 +24,12 @@ Configure `main` with:
 - require branches to be up to date before merging,
 - require the `governance` status check,
 - require the `separate-reviewer` status check,
-- require pull requests with zero native required approvals for the autonomous queue,
+- require at least one native approving review until the reviewer app owns an external required status,
 - block force pushes,
 - block deletions,
 - include administrators when practical.
 
-Fatty enforces non-author review through the required `separate-reviewer` workflow instead of GitHub's native required-review count. This is intentional: local GitHub App reviews satisfy the workflow gate, but GitHub may not count those app approvals as native collaborator approvals. The branch rule still requires pull requests, but sets the native required approval count to zero. The workflow requires an approval from an eligible non-author reviewer on the current PR head SHA, so stale approvals after branch updates do not pass. The initial eligible reviewer is the `fatty-reviewer[bot]` GitHub App identity.
+Fatty enforces non-author review with two gates for now: GitHub's native required approval and the required `separate-reviewer` workflow. The workflow checks for an approval from the eligible `fatty-reviewer[bot]` app identity on the current PR head SHA. Native approval remains required until the reviewer app can publish an immutable external required status or check that PR authors cannot edit through repository workflows.
 
 ## Private Repository Plan Caveat
 
@@ -68,7 +68,7 @@ When branch protection is available:
 2. Go to Branches.
 3. Add a branch protection rule for `main`.
 4. Enable "Require a pull request before merging".
-5. Require pull requests, but set native required approvals to zero for the autonomous queue.
+5. Require at least one native approving review.
 6. Enable conversation resolution.
 7. Enable required status checks.
 8. Require branches to be up to date before merging.

@@ -25,9 +25,9 @@ The reviewer should prioritize:
 
 ## Automated Gate
 
-The `reviewer-gate` GitHub workflow checks that at least one approval exists on the current PR head SHA from an eligible reviewer other than the PR author. The initial eligible reviewer is the local `fatty-reviewer[bot]` GitHub App identity, pinned by GitHub user id and Bot type. GitHub branch protection should require this workflow.
+The `reviewer-gate` GitHub workflow checks that at least one approval exists on the current PR head SHA from an eligible reviewer other than the PR author. The initial eligible reviewer is the local `fatty-reviewer[bot]` GitHub App identity, pinned by GitHub user id and Bot type. GitHub branch protection should require this workflow and native approval while the reviewer signal is still implemented as repository workflow code.
 
-Keep GitHub's pull-request requirement enabled, but do not also require GitHub's native approving review count for the autonomous queue. GitHub may not count local GitHub App approvals as native collaborator approvals, which would block safe parallel automation even when the required `separate-reviewer` check has passed.
+The long-term autonomous merge gate should move from repository workflow code to an immutable external GitHub App status or check. Until then, native approval protects workflow and governance changes from editing their own review gate.
 
 ## Emergency Exception
 

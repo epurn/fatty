@@ -36,7 +36,7 @@ Configure GitHub `main` with:
 - block deletions,
 - apply rules to administrators where practical.
 
-The `separate-reviewer` status check is the enforceable non-author review gate. Keep GitHub's pull-request requirement enabled, but set native required approvals to zero for the autonomous queue; eligible local GitHub App approvals can satisfy the workflow while still appearing as `REVIEW_REQUIRED` to GitHub's native review decision.
+The `separate-reviewer` status check is the automated reviewer gate, but native GitHub approval remains required until the reviewer app owns an external required status or check that PR authors cannot edit through repository workflows.
 
 ## Merge Style
 

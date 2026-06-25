@@ -152,8 +152,10 @@ def main() -> None:
     required_reviews = protection.get("required_pull_request_reviews")
     if not isinstance(required_reviews, dict):
         fail("branch protection template must keep pull requests required")
-    if required_reviews.get("required_approving_review_count") != 0:
-        fail("branch protection template must leave native required approvals at zero")
+    if required_reviews.get("required_approving_review_count") != 1:
+        fail("branch protection template must require native approval until an external reviewer status exists")
+    if not required_reviews.get("require_last_push_approval"):
+        fail("branch protection template must require latest-push approval")
 
     validate_story("docs/stories/FTY-001-author-agent-loop.md")
     validate_story("docs/stories/FTY-010-monorepo-scaffold.md")

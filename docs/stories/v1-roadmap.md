@@ -8,6 +8,7 @@ This is the initial story order for Fatty v1. Keep stories small enough for one 
 | --- | --- | --- | --- | --- |
 | FTY-000 | merged | governance | Governance, CI, branch protection, reviewer gate | Main is protected; governance and separate reviewer checks are required. |
 | FTY-001 | merged | governance | [Author-agent loop and PR rejection monitor](FTY-001-author-agent-loop.md) | Story slicing docs exist; recurring monitor is configured. |
+| FTY-002 | candidate | governance | External reviewer status gate | Reviewer app publishes an immutable required status/check so autonomous auto-merge does not depend on PR-controlled workflow code. |
 
 ## Milestone 1: Project Skeleton
 
