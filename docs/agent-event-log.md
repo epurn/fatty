@@ -60,9 +60,17 @@ calls. The service-level files are append-only across the process lifetime.
 - `pr_blocked` — open PR needs author attention. `fields`: `pr`, `reasons`.
 - `steward_judgment` — model woken for bounded judgment. `fields`: `reason`.
 - `roadmap_state_mismatch` — a roadmap-table State disagrees with the story
-  file's front-matter `state:` (the steward routes off the table, so a lagging
-  table silently starves the ready queue). `level: warn`. `fields`: `story_id`,
-  `table_state`, `file_state`.
+  file's front-matter `state:`. Only the actionable direction (a story that
+  looks ready in its file but is not promoted in the table — a starvation risk)
+  is `level: warn`; the benign post-merge direction (table merged, file not yet)
+  is `level: debug` since the file is reconciled separately. `fields`:
+  `story_id`, `table_state`, `file_state`.
+- `story_merged` — the steward git-confirmed a story's branch merged and
+  recorded it in its **own run-state** (`<run_dir>/merged-stories.json`), NOT in
+  the fatty repo. `info`. `fields`: `story_id`. The fatty checkout is left
+  pristine so `health.sync_base` can fast-forward it; the steward overlays these
+  ids as `merged` when routing each cycle, so a merged story is never
+  re-assigned even if the origin roadmap still lists it as ready.
 
 Health guard + safe auto-recovery (the steward never takes a destructive remote
 git action — push, force-push, rebase, branch delete — those only warn):
