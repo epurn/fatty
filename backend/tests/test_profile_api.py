@@ -32,7 +32,7 @@ def test_profile_defaults_after_registration(client: TestClient) -> None:
     assert body["user_id"] == user_id
     assert body["height_m"] is None
     assert body["weight_kg"] is None
-    assert body["metabolic_formula"] == "mifflin_st_jeor"
+    assert body["metabolic_formula"] == "mifflin_st_jeor_male"
     assert body["units_preference"] == "metric"
     assert body["timezone"] == "UTC"
 
