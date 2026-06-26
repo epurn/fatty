@@ -44,6 +44,11 @@ decisions one-by-one until you reach shared understanding. Rules:
 - **Relentless but convergent** — stop when the open branches are resolved.
 - **Watch the scope.** If it won't fit one vertical slice, plan to split it into
   several dependent stories and grill each slice's boundary.
+- **Write in the background, never stop grilling.** As soon as one slice's design
+  is fully resolved, dispatch its planner subagent to write that story (see §4)
+  and immediately continue interviewing on the next slice or open branch while it
+  works. The user should never be left waiting on a write — keep asking questions
+  the whole time. Collect the subagents' results as they finish.
 
 Resolve everything a ready story needs — these map directly to the template:
 
@@ -66,17 +71,15 @@ Resolve everything a ready story needs — these map directly to the template:
   to resolve now or a reason to mark the story `ready_with_notes`/`candidate`.
 - **review_focus**, **tags**, **requires_context** as relevant.
 
-## 3. Reflect the shared understanding
+## 3. Write each story as its design resolves
 
-When the tree is resolved, summarize the decisions (and, if splitting, the story
-breakdown and dependency order) back in a few lines and get a final confirmation.
-
-## 4. Write the story / stories
-
-Delegate the writing to the **planner** subagent (Agent tool,
-`subagent_type: "planner"`) so the role boundary holds, passing the resolved
-decisions. The planner writes each story under `fatty/docs/stories/` using the
-template and YAML front matter from the stories README, with:
+Don't wait for the whole session to finish. The moment a slice's design tree is
+resolved, hand that slice off to the **planner** subagent (Agent tool,
+`subagent_type: "planner"`) and keep interviewing on the next slice while it
+writes. Dispatch one subagent per story so several can write concurrently. Pass
+each subagent the resolved decisions for its slice, and have it write the story
+under `fatty/docs/stories/` using the template and YAML front matter from the
+stories README, with:
 
 - the assigned `FTY-###` id(s) and correct dependency links between split stories,
 - a completed **Readiness Sanity Pass** (product-decision gaps, cross-lane
@@ -84,5 +87,14 @@ template and YAML front matter from the stories README, with:
   autonomy),
 - `state: ready` when it passes cleanly, `ready_with_notes` if it's ready but
   carries caveats, or `candidate` if an open product decision remains.
+
+Reserve `FTY-###` ids up front so concurrent subagents don't collide, and pass
+each subagent its assigned id and the ids of the stories it depends on.
+
+## 4. Reflect and close out
+
+When every branch is resolved and the in-flight subagents have returned, summarize
+the decisions and the written stories (and, if splitting, the breakdown and
+dependency order) back in a few lines and confirm.
 
 Stop at promoted, ready stories. Do not assign, launch, or operate anything.
