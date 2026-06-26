@@ -71,6 +71,19 @@ calls. The service-level files are append-only across the process lifetime.
   pristine so `health.sync_base` can fast-forward it; the steward overlays these
   ids as `merged` when routing each cycle, so a merged story is never
   re-assigned even if the origin roadmap still lists it as ready.
+- `prune_closed_pr` — a `PR-<n>` fix-job's PR is no longer open, so its run-state
+  (`<run_dir>/PR-<n>.json` + `.log`) and worktree were cleaned up. `info`.
+  `fields`: `pr`. Story prune (`prune_merged_branch`) only covers roadmap
+  stories; this reconciles the transient PR fix-jobs that story prune skips, so
+  merged/closed PRs no longer linger as phantom runs-in-flight. Runs only on a
+  real poll where the open-PR set is authoritative; the local branch is deleted
+  only when git confirms it merged (a closed-unmerged branch keeps its commits).
+- `prune_orphan_worktree` — a directory under the worktree root matched no
+  registered git worktree and no active run-state, so it was removed. `info`.
+  `fields`: none beyond `run_id` (the dir name).
+- `orphan_worktree_kept` — an unregistered directory still held a `.git`, so the
+  orphan sweep left it in place rather than risk destroying a working tree with
+  history. `warn`. `fields`: none beyond `run_id` (the dir name).
 
 Health guard + safe auto-recovery (the steward never takes a destructive remote
 git action — push, force-push, rebase, branch delete — those only warn):
