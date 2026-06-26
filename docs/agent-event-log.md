@@ -59,6 +59,10 @@ calls. The service-level files are append-only across the process lifetime.
 - `author_launch` — author process spawned. `fields`: `story_id`, `mode`, `lanes`.
 - `pr_blocked` — open PR needs author attention. `fields`: `pr`, `reasons`.
 - `steward_judgment` — model woken for bounded judgment. `fields`: `reason`.
+- `roadmap_state_mismatch` — a roadmap-table State disagrees with the story
+  file's front-matter `state:` (the steward routes off the table, so a lagging
+  table silently starves the ready queue). `level: warn`. `fields`: `story_id`,
+  `table_state`, `file_state`.
 
 ### reviewer
 - `watch_start` — watch loop began. `fields`: `repo`, `interval`, `auto_merge`.
