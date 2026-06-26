@@ -17,7 +17,8 @@ here — work inside them on their own.
 | `fatty-reviewer-agent/` | Always-on poller. Reviews PR heads read-only, posts the reviewer-approved status. |
 | `fatty-author-agent/` | One-shot worker. Implements/fixes one assigned story in a worktree, opens a PR. |
 | `fatty-worktrees/` | Per-assignment git worktrees + steward run state. |
-| `docs/` | The agent operating system: roles, polling, model policy. |
+| `fatty-fatop/` | Read-only Go TUI/CLI that monitors the agents. Reads the structured event logs; never operates the services. |
+| `docs/` | The agent operating system: roles, polling, model policy, event log. |
 | `.claude/` | Skills and the planner subagent used to manage everything from here. |
 
 ## The Four Roles
@@ -56,6 +57,22 @@ You own start/stop/observe. The planner prepares work; it never runs services.
 
 Prefer the `agents-status` and `agents-control` skills for these — they wrap the
 commands and summarize state.
+
+## Observing The Agents (fatop)
+
+`fatty-fatop/` is a read-only Go monitor. Build it once (`cd fatty-fatop && make
+install`), then:
+
+```sh
+fatop                      # live TUI: services, runs in flight, PR state, streams
+fatop status               # one-shot snapshot
+fatop logs [agent] -f      # follow the merged (or one agent's) event stream
+fatop inspect <id|PR-n>    # full timeline for a single run
+```
+
+`agents-up.sh` launches `fatop` automatically when it is built (pass `--raw` for
+the old tail). fatop only reads the structured event logs defined in
+`docs/agent-event-log.md`; it never starts, stops, or mutates anything.
 
 ## Model Policy (Claude Code)
 

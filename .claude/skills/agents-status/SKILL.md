@@ -9,6 +9,19 @@ Produce a concise snapshot of the Fatty agent system. Run these read-only checks
 (paths assume the command-centre root `/Users/epurn/workspace/fatty-suite`), then
 summarize — do not dump raw output.
 
+## Fast path: fatop
+
+If the `fatop` monitor is built, prefer it — it already aggregates services,
+runs, and PR state:
+
+```sh
+fatop status                 # or: ./fatty-fatop/fatop status
+fatop inspect <FTY-id|PR-n>  # full timeline for one run
+```
+
+For a live view instead of a snapshot, run `fatop` (the TUI). Fall back to the
+manual checks below if fatop is not installed.
+
 ## Processes and services
 
 ```sh

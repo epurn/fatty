@@ -24,9 +24,21 @@ echo "== active agent processes =="
 pgrep -af 'reviewer_agent/runner.py|steward_agent/runner.py|author_agent/runner.py' 2>/dev/null || true
 
 echo
-echo "Agents are running as launchd services. Tailing logs; Ctrl-C stops the tail"
-echo "only — the agents keep running. Stop them with: scripts/agents-down.sh"
+echo "Agents are running as launchd services. The viewer below is just an"
+echo "observer — closing it leaves the agents running. Stop them with:"
+echo "scripts/agents-down.sh"
 echo
+
+# Prefer the fatop dashboard; fall back to a raw tail with --raw or if fatop
+# is not built. fatop is read-only and never touches the running agents.
+FATOP="$(command -v fatop || true)"
+[ -z "$FATOP" ] && [ -x "$ROOT/fatty-fatop/fatop" ] && FATOP="$ROOT/fatty-fatop/fatop"
+
+if [ "${1:-}" != "--raw" ] && [ -n "$FATOP" ]; then
+  exec "$FATOP" watch --root "$ROOT"
+fi
+
+echo "(fatop not found or --raw given; tailing raw logs)"
 exec tail -n 0 -F \
   "$REVIEWER/logs/reviewer.out.log" "$REVIEWER/logs/reviewer.err.log" \
   "$STEWARD/logs/steward.out.log"   "$STEWARD/logs/steward.err.log"
