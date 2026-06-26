@@ -57,7 +57,12 @@ calls. The service-level files are append-only across the process lifetime.
 - `poll_cycle` — a poll tick ran. `fields`: `event_kind`, `occupied_lanes`.
 - `decision` — a routing decision. `fields`: `action`, `lane`, `story_id`, `reason`.
 - `author_launch` — author process spawned. `fields`: `story_id`, `mode`, `lanes`.
-- `pr_blocked` — open PR needs author attention. `fields`: `pr`, `reasons`.
+- `pr_blocked` — open PR needs author attention. `fields`: `pr`, `reasons`. A
+  merge conflict with the base counts as a blocker: the steward detects it via
+  the single-PR GET (`mergeable == false` / `mergeable_state == "dirty"`) and
+  routes a `fix-pr` author that merges the base into the PR branch and resolves
+  the conflicts. A `null` mergeable (GitHub still computing) is not treated as a
+  conflict and is reassessed next poll.
 - `steward_judgment` — model woken for bounded judgment. `fields`: `reason`.
 - `roadmap_state_mismatch` — a roadmap-table State disagrees with the story
   file's front-matter `state:`. Only the actionable direction (a story that
