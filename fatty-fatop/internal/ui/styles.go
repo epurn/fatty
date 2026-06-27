@@ -66,7 +66,11 @@ func EventIcon(eventT, kind string) string {
 		return "✓"
 	case eventT == "review_posted" || eventT == "auto_merge_enabled":
 		return "✓"
-	case eventT == "pr_blocked" || eventT == "steward_judgment":
+	case eventT == "run_looping":
+		return "⟳"
+	case eventT == "run_timeout":
+		return "⏱"
+	case eventT == "story_circuit_open" || eventT == "pr_blocked" || eventT == "steward_judgment":
 		return "⚠"
 	case eventT == "author_launch" || eventT == "run_start" || eventT == "review_start":
 		return "▸"
