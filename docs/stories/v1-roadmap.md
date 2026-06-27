@@ -86,13 +86,14 @@ The two mobile-core items are split backend/mobile for parallel work: weight (07
 
 ## Milestone 8: Release
 
-Sequenced last — depends on every remaining v1 story, so it is only assigned once
-they have all merged. Prepares the release-ready PR (version, changelog, docs,
-green verify); the actual tag/GitHub-release/deploy is a human step.
+Phase 4 of `docs/release-runbook.md`. Depends on every remaining v1 story; held as
+`candidate` until both those merge AND the full-system audit + fix loop (runbook
+Phases 1–3) is clean — then a human promotes it to `ready`. The tag/release/deploy
+itself is a human step.
 
 | ID | State | Lane | Story | Acceptance |
 | --- | --- | --- | --- | --- |
-| FTY-080 | ready | governance | [v1 release prep](FTY-080-v1-release-prep.md) | v1.0.0 version is consistent, CHANGELOG + README match the shipped product, and full `make verify` is green. Depends on FTY-062/064/070/073/074/075. |
+| FTY-080 | candidate | governance | [v1 release prep](FTY-080-v1-release-prep.md) | v1.0.0 version is consistent, CHANGELOG + README match the shipped product, and full `make verify` is green. Gated on the release runbook + FTY-062/064/070/073/074/075. |
 
 ## Story Promotion Rule
 

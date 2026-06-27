@@ -1,6 +1,6 @@
 ---
 id: FTY-080
-state: ready
+state: candidate
 primary_lane: governance
 touched_lanes:
   - backend-core
@@ -28,12 +28,14 @@ autonomous: true
 
 ## State
 
-ready
+candidate
 
-> Sequenced last: this story depends on every remaining v1 story, so the steward
-> only assigns it once they have all merged. It prepares the release; it does not
-> implement features. The actual tag + GitHub release + deploy is a human step
-> (see Non-Goals) — this story produces the release-ready PR.
+> This is **Phase 4 of the release runbook** (`docs/release-runbook.md`): the
+> mechanical release-prep PR. Held as `candidate` on purpose — promote it to
+> `ready` only after BOTH (a) every dependency below has merged AND (b) the
+> full-system audit + fix loop (runbook Phases 1–3) is clean. It must not run
+> before the audit. It prepares the release; it never implements features. The
+> actual tag + GitHub release + deploy is a human step (see Non-Goals).
 
 ## Lane
 
