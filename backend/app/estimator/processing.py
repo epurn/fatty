@@ -43,6 +43,7 @@ from app.enums import (
 )
 from app.estimator.fdc import build_fdc_client
 from app.estimator.food_step import BarcodeResolver, FoodResolver
+from app.estimator.label_step import LabelInput
 from app.estimator.off import build_off_client
 from app.estimator.pipeline import (
     EstimationContext,
@@ -50,6 +51,7 @@ from app.estimator.pipeline import (
     PipelineOutcome,
     PipelineResult,
     default_pipeline,
+    label_pipeline,
 )
 from app.llm import build_provider, load_llm_settings
 from app.models.derived import (
@@ -59,8 +61,9 @@ from app.models.derived import (
 )
 from app.models.estimation import EstimationJob, EstimationRun
 from app.models.food_sources import EvidenceSource
-from app.models.identity import UserProfile
+from app.models.identity import User, UserProfile
 from app.models.log_events import LogEvent
+from app.services.attachments import ingest_upload
 from app.services.log_events import transition_event
 
 #: Maximum number of estimation attempts before the job is marked ``failed``.
@@ -178,6 +181,7 @@ def process_estimation(
     log_event_id: uuid.UUID,
     user_id: uuid.UUID,
     pipeline: Pipeline | None = None,
+    label_upload: LabelInput | None = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> ProcessResult:
     """Run one estimation attempt for ``log_event_id``, idempotently.
@@ -185,21 +189,33 @@ def process_estimation(
     Returns a :class:`ProcessResult`. The caller schedules a retry iff
     ``should_retry`` is set. Raises :class:`EstimationEventNotFound` when the
     event is missing or not owned by ``user_id``.
+
+    ``label_upload`` carries a user-provided nutrition-label image (FTY-061): when
+    present, the default pipeline is the label-extraction pipeline (the image is
+    read by the v2 vision provider rather than the text parsed), and after
+    extraction the raw image is retained only on an explicit save (FTY-077),
+    discarded by default.
     """
 
     if pipeline is None:
-        # The food step (FTY-044/060) needs this session for the product cache and
-        # evidence writes, so the default pipeline is built per call here where the
-        # session is in scope. A barcode candidate prefers the Open Food Facts source
-        # (enabled by default); a generic food uses USDA FDC (disabled without a key,
-        # leaving the candidate unresolved). Building a client makes no network call.
-        resolver = FoodResolver(session=session, source=build_fdc_client())
-        barcode_resolver = BarcodeResolver(session=session, source=build_off_client())
-        pipeline = default_pipeline(
-            build_provider(load_llm_settings()),
-            food_resolver=resolver,
-            barcode_resolver=barcode_resolver,
-        )
+        provider = build_provider(load_llm_settings())
+        if label_upload is not None:
+            # A label event has an image, not NL text: extract it deterministically
+            # rather than running the text parse pipeline.
+            pipeline = label_pipeline(provider)
+        else:
+            # The food step (FTY-044/060) needs this session for the product cache and
+            # evidence writes, so the default pipeline is built per call here where the
+            # session is in scope. A barcode candidate prefers the Open Food Facts source
+            # (enabled by default); a generic food uses USDA FDC (disabled without a key,
+            # leaving the candidate unresolved). Building a client makes no network call.
+            resolver = FoodResolver(session=session, source=build_fdc_client())
+            barcode_resolver = BarcodeResolver(session=session, source=build_off_client())
+            pipeline = default_pipeline(
+                provider,
+                food_resolver=resolver,
+                barcode_resolver=barcode_resolver,
+            )
 
     # Enforce ownership before any write: a missing or cross-user event fails
     # closed and no job row is created on its behalf.
@@ -255,6 +271,7 @@ def process_estimation(
         user_id=user_id,
         raw_text=event.raw_text,
         weight_kg=_load_user_weight_kg(session, user_id),
+        label_input=label_upload,
     )
     result = _run_pipeline(pipeline, context)
 
@@ -268,7 +285,12 @@ def process_estimation(
     run.validation_errors = list(context.validation_errors)
     run.trace = list(context.trace)
 
-    return _finalize(session, job, event, run, result, context)
+    process_result = _finalize(session, job, event, run, result, context)
+
+    if label_upload is not None:
+        _retain_label_image(session, user_id, log_event_id, label_upload, result.outcome)
+
+    return process_result
 
 
 def _run_pipeline(pipeline: Pipeline, context: EstimationContext) -> PipelineResult:
@@ -358,6 +380,9 @@ def _persist_candidates(session: Session, run: EstimationRun, context: Estimatio
     and the owning ``log_event_id`` are carried on every row for object-level
     authorization and retention.
     """
+
+    if context.resolved_label_items:
+        _persist_resolved_labels(session, run, context)
 
     if context.resolved_food_items:
         _persist_resolved_food(session, run, context)
@@ -457,6 +482,95 @@ def _persist_resolved_food(
                 fat_per_100g=item.fat_per_100g,
             )
         )
+
+
+def _persist_resolved_labels(
+    session: Session, run: EstimationRun, context: EstimationContext
+) -> None:
+    """Persist extracted nutrition-label items with calories/macros and evidence (FTY-061).
+
+    Each item becomes a ``resolved`` ``derived_food_items`` row (flushed so its id is
+    available) plus a user-owned ``evidence_sources`` row recording the
+    ``user_label`` source type, the image content hash, the extraction timestamp, and
+    the immutable per-100g facts snapshot — **never** the raw image or raw model
+    output. There is no ``product_id``: a label is user-provided evidence, not a
+    global cache row, so the nullable ``product_id`` is left ``None``.
+    """
+
+    for item in context.resolved_label_items:
+        food = DerivedFoodItem(
+            log_event_id=run.log_event_id,
+            user_id=run.user_id,
+            name=item.name,
+            quantity_text=item.quantity_text,
+            unit=item.unit,
+            amount=item.amount,
+            status=DerivedItemStatus.RESOLVED,
+            grams=item.grams,
+            calories=item.calories,
+            protein_g=item.protein_g,
+            carbs_g=item.carbs_g,
+            fat_g=item.fat_g,
+            # Snapshot the estimator's original calories/macros at creation so a
+            # later user correction (FTY-051) preserves them immutably.
+            calories_estimated=item.calories,
+            protein_g_estimated=item.protein_g,
+            carbs_g_estimated=item.carbs_g,
+            fat_g_estimated=item.fat_g,
+        )
+        session.add(food)
+        session.flush()  # assign food.id for the evidence foreign key
+
+        session.add(
+            EvidenceSource(
+                user_id=run.user_id,
+                log_event_id=run.log_event_id,
+                derived_food_item_id=food.id,
+                product_id=None,
+                source_type=item.source_type,
+                source_ref=item.source_ref,
+                content_hash=item.content_hash,
+                fetched_at=item.extracted_at,
+                calories_per_100g=item.calories_per_100g,
+                protein_per_100g=item.protein_per_100g,
+                carbs_per_100g=item.carbs_per_100g,
+                fat_per_100g=item.fat_per_100g,
+            )
+        )
+
+
+def _retain_label_image(
+    session: Session,
+    user_id: uuid.UUID,
+    log_event_id: uuid.UUID,
+    label: LabelInput,
+    outcome: PipelineOutcome,
+) -> None:
+    """Apply discard-by-default raw-image retention after extraction (FTY-077).
+
+    Delegates to :func:`app.services.attachments.ingest_upload`: with the user's
+    default (``save = False``) no raw image is persisted; only an explicit save
+    writes exactly one ``log_attachments`` row. A failed extraction (unusable /
+    invalid image) never persists the image — there is nothing worth keeping and
+    re-validating an invalid image would error. The saved row shares the evidence's
+    content hash, so a kept image is correlatable with its extracted facts.
+    """
+
+    if not label.save or outcome is PipelineOutcome.FAILED:
+        return
+
+    current_user = session.get(User, user_id)
+    if current_user is None:  # pragma: no cover - the event was loaded scoped to this user
+        return
+    ingest_upload(
+        session,
+        owner_id=user_id,
+        current_user=current_user,
+        log_event_id=log_event_id,
+        data=label.data,
+        content_type=label.content_type,
+        save=True,
+    )
 
 
 def _persist_clarification_questions(

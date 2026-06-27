@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from app.estimator.food_step import BarcodeResolver, FoodResolver
+    from app.estimator.label_step import LabelInput
     from app.llm.base import Provider
 
 
@@ -167,6 +168,41 @@ class ResolvedFoodItem:
     fat_per_100g: float
 
 
+@dataclass(frozen=True)
+class ResolvedLabelItem:
+    """A costed food item extracted from a user-provided nutrition label (FTY-061).
+
+    Carries the deterministic resolution of a label scan: the consumed portion
+    ``grams`` and the canonical ``calories``/macros the backend computed from the
+    schema-validated panel facts plus the serving/quantity, never from the model.
+    It also carries the provenance the worker writes as an ``evidence_sources`` row
+    with ``source_type = user_label`` (rank 1, above any database lookup): the
+    content hash of the image the facts were extracted from, the extraction
+    timestamp, and the immutable per-100g facts snapshot. There is **no**
+    ``product_id`` — a label is user-provided evidence, not a global cache row. Like
+    :class:`ResolvedFoodItem` it is product data persisted to a user-owned table,
+    never copied into the sanitized run ``trace``.
+    """
+
+    name: str
+    quantity_text: str
+    unit: str | None
+    amount: float | None
+    grams: float
+    calories: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    source_type: str
+    source_ref: str
+    content_hash: str
+    extracted_at: datetime
+    calories_per_100g: float
+    protein_per_100g: float
+    carbs_per_100g: float
+    fat_per_100g: float
+
+
 @dataclass
 class EstimationContext:
     """Mutable accumulator threaded through the pipeline steps.
@@ -186,6 +222,10 @@ class EstimationContext:
     #: worker for the exercise calculator (FTY-043). ``None`` when the profile has
     #: no weight yet; the calculator fails closed rather than guessing a burn.
     weight_kg: float | None = None
+    #: The untrusted nutrition-label image (plus consumed quantity) the label step
+    #: (FTY-061) extracts from, when this event carries one. ``None`` for a plain
+    #: text estimation; the label step is a no-op without it.
+    label_input: LabelInput | None = None
     provider: str | None = None
     model: str | None = None
     schema_version: str | None = None
@@ -198,6 +238,7 @@ class EstimationContext:
     exercise_candidates: list[CandidateDraft] = field(default_factory=list)
     resolved_exercise_items: list[ResolvedExerciseItem] = field(default_factory=list)
     resolved_food_items: list[ResolvedFoodItem] = field(default_factory=list)
+    resolved_label_items: list[ResolvedLabelItem] = field(default_factory=list)
     clarification_questions: list[str] = field(default_factory=list)
 
     def record_step(self, name: str, status: str) -> None:
@@ -329,3 +370,21 @@ def default_pipeline(
     if food_resolver is not None:
         steps.append(FoodResolveStep(food_resolver, barcode_resolver=barcode_resolver))
     return Pipeline(steps)
+
+
+def label_pipeline(provider: Provider) -> Pipeline:
+    """Build the nutrition-label extraction pipeline (FTY-061).
+
+    A single :class:`~app.estimator.label_step.LabelResolveStep` that reads the
+    event's label image (``context.label_input``) through the v2 vision provider,
+    validates the panel, and costs it deterministically. This is a *separate*
+    pipeline from :func:`default_pipeline`: a label event has an image rather than
+    NL text, so it does not run the text parse step. The worker selects this
+    pipeline when the event carries a label image.
+    """
+
+    # Imported here rather than at module top to avoid a cycle: the step imports the
+    # context/exception types defined above in this module.
+    from app.estimator.label_step import LabelResolveStep
+
+    return Pipeline([LabelResolveStep(provider)])

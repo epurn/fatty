@@ -46,8 +46,10 @@ implementation lives in `backend/app/estimator/` (`fdc.py`,
 `hardened_fetch.py`, `food_sources.py`); see `food-resolution.md`. The Open Food
 Facts barcode adapter (`off.py`, `product_database` tier) is implemented in
 FTY-060 behind these same boundaries; see `food-resolution.md` (**Barcode
-Source**). Remaining adapters (the official-source search/fetch step, label
-extraction) implement this contract the same way.
+Source**). The user-provided nutrition-label adapter (`label_step.py`,
+`user_label` tier — rank 1) is implemented in FTY-061; see `label-extraction.md`.
+The remaining adapter (the official-source search/fetch step) implements this
+contract the same way.
 
 ## Version
 
@@ -110,7 +112,7 @@ from. Records are split so global source facts never carry user-specific data:
 | Field | Type | Notes |
 | --- | --- | --- |
 | `source_type` | enum | One of the **Source Hierarchy** values. |
-| `source_ref` | string | Stable reference, e.g. `usda_fdc:<fdcId>`, `open_food_facts:<barcode>`, `official_source:<url>`, `user_label:<attachment_id>`, `model_prior`. |
+| `source_ref` | string | Stable reference, e.g. `usda_fdc:<fdcId>`, `open_food_facts:<barcode>`, `official_source:<url>`, `user_label:<content_hash>` (FTY-061; the SHA-256 of the label image, which a saved `log_attachments` row shares), `model_prior`. |
 | `content_hash` | string | Hash of the extracted facts / fetched content the snapshot came from. |
 | `fetched_at` | timestamptz | When the source was queried/extracted. |
 | `facts` | normalized nutrition facts | Immutable snapshot (see below). |
