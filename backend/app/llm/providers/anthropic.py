@@ -9,12 +9,14 @@ logged before validation.
 
 from __future__ import annotations
 
+import base64
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
 
 from app.llm import transport
-from app.llm.base import Provider, build_user_messages, json_schema_for
+from app.llm.base import ImageInput, Provider, build_user_messages, json_schema_for
 from app.llm.errors import LLMResponseError
 
 #: Anthropic requires an explicit output bound; a documented tunable.
@@ -41,20 +43,31 @@ class AnthropicProvider(Provider):
         timeout_seconds: float,
         max_retries: int,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        supports_vision: bool = False,
     ) -> None:
-        super().__init__(timeout_seconds=timeout_seconds, max_retries=max_retries)
+        super().__init__(
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            supports_vision=supports_vision,
+        )
         self._api_key = api_key
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._max_tokens = max_tokens
 
     def _complete(
-        self, prompt: str, schema: type[BaseModel], *, timeout_seconds: float
+        self,
+        prompt: str,
+        schema: type[BaseModel],
+        *,
+        images: Sequence[ImageInput] | None,
+        timeout_seconds: float,
     ) -> dict[str, Any]:
+        image_blocks = [_image_block(image) for image in images or ()]
         payload = {
             "model": self._model,
             "max_tokens": self._max_tokens,
-            "messages": build_user_messages(prompt),
+            "messages": build_user_messages(prompt, image_blocks),
             "tools": [
                 {
                     "name": _TOOL_NAME,
@@ -74,6 +87,23 @@ class AnthropicProvider(Provider):
             timeout_seconds=timeout_seconds,
         )
         return _extract_tool_input(response)
+
+
+def _image_block(image: ImageInput) -> dict[str, Any]:
+    """Encode an image as an Anthropic base64 ``image`` content block.
+
+    Anthropic carries inline images as an ``image`` block with a base64
+    ``source``; the bytes are encoded here at the wire edge and never logged.
+    """
+
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": image.media_type,
+            "data": base64.b64encode(image.data).decode("ascii"),
+        },
+    }
 
 
 def _extract_tool_input(response: dict[str, Any]) -> dict[str, Any]:

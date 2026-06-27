@@ -45,3 +45,26 @@ def test_anthropic_selected() -> None:
     provider = build_provider(settings)
 
     assert isinstance(provider, AnthropicProvider)
+
+
+def test_supports_vision_is_threaded_to_provider() -> None:
+    # The config flag must reach the provider so the image-capability check is
+    # enforced for the configured model, not just the fake.
+    settings = LLMSettings(
+        provider="openai",
+        api_key=SecretStr("k"),
+        model="gpt-4o",
+        supports_vision=True,
+    )
+
+    provider = build_provider(settings)
+
+    assert provider._supports_vision is True
+
+
+def test_supports_vision_defaults_off_on_provider() -> None:
+    settings = LLMSettings(provider="openai", api_key=SecretStr("k"), model="gpt-4o-mini")
+
+    provider = build_provider(settings)
+
+    assert provider._supports_vision is False

@@ -28,6 +28,7 @@ def build_provider(settings: LLMSettings) -> Provider:
         return FakeProvider(
             timeout_seconds=settings.timeout_seconds,
             max_retries=settings.max_retries,
+            supports_vision=settings.supports_vision,
         )
 
     # Guaranteed non-None by LLMSettings validation for non-fake providers; the
@@ -43,6 +44,7 @@ def build_provider(settings: LLMSettings) -> Provider:
             base_url=settings.resolved_base_url(),
             timeout_seconds=settings.timeout_seconds,
             max_retries=settings.max_retries,
+            supports_vision=settings.supports_vision,
         )
 
     # "openai" and "openai_compatible" share the Chat Completions wire format;
@@ -53,4 +55,5 @@ def build_provider(settings: LLMSettings) -> Provider:
         base_url=settings.resolved_base_url(),
         timeout_seconds=settings.timeout_seconds,
         max_retries=settings.max_retries,
+        supports_vision=settings.supports_vision,
     )

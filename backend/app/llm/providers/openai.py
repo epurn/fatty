@@ -12,13 +12,15 @@ logged before validation.
 
 from __future__ import annotations
 
+import base64
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
 
 from app.llm import transport
-from app.llm.base import Provider, build_user_messages, json_schema_for
+from app.llm.base import ImageInput, Provider, build_user_messages, json_schema_for
 from app.llm.errors import LLMResponseError
 
 
@@ -35,18 +37,29 @@ class OpenAIProvider(Provider):
         base_url: str,
         timeout_seconds: float,
         max_retries: int,
+        supports_vision: bool = False,
     ) -> None:
-        super().__init__(timeout_seconds=timeout_seconds, max_retries=max_retries)
+        super().__init__(
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            supports_vision=supports_vision,
+        )
         self._api_key = api_key
         self._model = model
         self._base_url = base_url.rstrip("/")
 
     def _complete(
-        self, prompt: str, schema: type[BaseModel], *, timeout_seconds: float
+        self,
+        prompt: str,
+        schema: type[BaseModel],
+        *,
+        images: Sequence[ImageInput] | None,
+        timeout_seconds: float,
     ) -> dict[str, Any]:
+        image_parts = [_image_content_part(image) for image in images or ()]
         payload = {
             "model": self._model,
-            "messages": build_user_messages(prompt),
+            "messages": build_user_messages(prompt, image_parts),
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -63,6 +76,20 @@ class OpenAIProvider(Provider):
             timeout_seconds=timeout_seconds,
         )
         return _extract_content(response)
+
+
+def _image_content_part(image: ImageInput) -> dict[str, Any]:
+    """Encode an image as an OpenAI ``image_url`` content part (data URL).
+
+    OpenAI carries inline images as a ``data:`` URL inside an ``image_url``
+    part; the bytes are base64-encoded here at the wire edge and never logged.
+    """
+
+    encoded = base64.b64encode(image.data).decode("ascii")
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{image.media_type};base64,{encoded}"},
+    }
 
 
 def _extract_content(response: dict[str, Any]) -> dict[str, Any]:
