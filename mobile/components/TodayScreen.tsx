@@ -11,6 +11,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
+  editDerivedItem as editDerivedItemApi,
+  type DerivedItem,
+} from "@/api/derivedItems";
+import {
   LogEventApiError,
   createLogEvent as createLogEventApi,
   listTodayLogEvents as listTodayLogEventsApi,
@@ -22,7 +26,12 @@ import {
   hasPendingWork,
   useIntervalPolling,
 } from "@/state/polling";
-import { useSession, toApiSession, type Session } from "@/state/session";
+import {
+  useSession,
+  toApiSession,
+  type ApiSession,
+  type Session,
+} from "@/state/session";
 import {
   OPTIMISTIC_ID_PREFIX,
   optimisticLogEvent,
@@ -68,12 +77,22 @@ export function TodayScreen({
   session: sessionOverride,
   load = listTodayLogEventsApi,
   create = createLogEventApi,
+  editItem = editDerivedItemApi,
+  items: itemsOverride,
   useActive = useScreenActive,
   pollIntervalMs = POLL_INTERVAL_MS,
 }: {
   session?: Session;
   load?: typeof listTodayLogEventsApi;
   create?: typeof createLogEventApi;
+  editItem?: typeof editDerivedItemApi;
+  /**
+   * Derived food/exercise items keyed by their `log_event_id`, rendered as
+   * editable surfaces beneath each entry (FTY-050). The item list endpoint is a
+   * later story, so this defaults to none today; edits reconcile the server's
+   * returned item back into this map.
+   */
+  items?: Readonly<Record<string, readonly DerivedItem[]>>;
   useActive?: () => boolean;
   pollIntervalMs?: number;
 } = {}) {
@@ -86,6 +105,11 @@ export function TodayScreen({
   );
 
   const [events, setEvents] = useState<readonly LogEventDTO[]>([]);
+  // Derived items keyed by event id. Seeded from the (injectable) prop; an edit
+  // reconciles the server's returned item back into this map by its event id.
+  const [itemsByEvent, setItemsByEvent] = useState<
+    Readonly<Record<string, readonly DerivedItem[]>>
+  >(itemsOverride ?? {});
   const [phase, setPhase] = useState<Phase>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -178,6 +202,22 @@ export function TodayScreen({
     );
   }, [apiSession, load]);
 
+  // Reconcile a confirmed edit (the server's current item) back into the map,
+  // replacing the prior item for its event by id so the timeline re-renders the
+  // server values — including any servings-rescaled calories/macros.
+  const handleItemChange = useCallback((updated: DerivedItem) => {
+    setItemsByEvent((prev) => {
+      const eventId = updated.log_event_id;
+      const current = prev[eventId] ?? [];
+      return {
+        ...prev,
+        [eventId]: current.map((item) =>
+          item.id === updated.id ? updated : item,
+        ),
+      };
+    });
+  }, []);
+
   // Poll while a non-terminal event is visible and the screen is active (the
   // app is foregrounded and this route is focused). Pausing during an in-flight
   // create lets that round-trip own the optimistic entry, avoiding a poll/create
@@ -249,6 +289,10 @@ export function TodayScreen({
 
       <Timeline
         events={events}
+        itemsByEvent={itemsByEvent}
+        session={apiSession}
+        editItem={editItem}
+        onItemChange={handleItemChange}
         phase={phase}
         loadError={loadError}
         onRetry={() => void refresh()}
@@ -259,11 +303,19 @@ export function TodayScreen({
 
 function Timeline({
   events,
+  itemsByEvent,
+  session,
+  editItem,
+  onItemChange,
   phase,
   loadError,
   onRetry,
 }: {
   events: readonly LogEventDTO[];
+  itemsByEvent: Readonly<Record<string, readonly DerivedItem[]>>;
+  session: ApiSession | null;
+  editItem: typeof editDerivedItemApi;
+  onItemChange: (item: DerivedItem) => void;
   phase: Phase;
   loadError: string | null;
   onRetry: () => void;
@@ -311,7 +363,14 @@ function Timeline({
       ) : null}
       <View style={styles.card}>
         {events.map((event) => (
-          <EntryRow key={event.id} event={event} />
+          <EntryRow
+            key={event.id}
+            event={event}
+            items={itemsByEvent[event.id]}
+            session={session}
+            editItem={editItem}
+            onItemChange={onItemChange}
+          />
         ))}
       </View>
     </View>

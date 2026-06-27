@@ -8,6 +8,15 @@ non-terminal the timeline **auto-refreshes** it to its terminal status without a
 manual refresh (FTY-032, the ADR-0002 polling mechanism); a manual refresh is
 also provided.
 
+A resolved food/exercise item under an entry is **editable in place** (FTY-050):
+the user can correct calories, macros, servings, and exercise burn. Each edit
+sends one `PATCH` per field to the FTY-051 edit endpoint and re-renders the
+**current** values the server returns — including the server-rescaled
+calories/macros from a servings edit (the UI never computes the rescale). Edits
+are optimistic and roll back on failure, and a corrected field carries an
+accessible "edited" indicator (text, not color alone) that names the preserved
+original estimate.
+
 ## Owns
 
 - The Expo application shell and screens (starting with the Today screen).
@@ -28,11 +37,12 @@ app/                 file-based routes (Expo Router)
   _layout.tsx        root Stack + SafeAreaProvider
   index.tsx          the Today route ("/")
   profile.tsx        the profile capture route ("/profile")
-api/                 typed clients for the backend (config, profile, logEvents)
-components/          presentational UI (TodayScreen, EntryRow, StatusIcon,
-                     ProfileForm, ProfileScreen)
-state/               local state + pure logic (today.ts, polling.ts,
-                     useScreenActive.ts, profile.ts, session.ts)
+api/                 typed clients for the backend (config, profile, logEvents,
+                     derivedItems)
+components/          presentational UI (TodayScreen, EntryRow, EditableItemRow,
+                     StatusIcon, ProfileForm, ProfileScreen)
+state/               local state + pure logic (today.ts, derivedItems.ts,
+                     polling.ts, useScreenActive.ts, profile.ts, session.ts)
 ```
 
 `api/logEvents.ts` is the typed client for the FTY-030 log-event create /
@@ -45,6 +55,16 @@ and the fixed-interval timer hook; `state/useScreenActive.ts` is the foreground 
 route-focus signal that pauses polling when the screen is backgrounded or
 unfocused. New screens are added by dropping route files into `app/` without
 restructuring the shell.
+
+`api/derivedItems.ts` is the typed client for the FTY-051 derived-item edit API
+(`PATCH …/derived-items/{type}/{id}`); `state/derivedItems.ts` holds the
+editable-item presentation logic: the per-type editable field vocabulary,
+current-vs-estimated reading, the edited indicator predicate, value formatting,
+and the optimistic single-field apply (which never rescales locally).
+`components/EditableItemRow.tsx` is the editable item surface `EntryRow` renders
+beneath an entry. The item list endpoint is a later story, so `TodayScreen`
+seeds derived items from an injectable map keyed by event id and reconciles each
+edit's server result back into it.
 
 `state/profile.ts` owns the minimal-required-profile capture logic (FTY-021):
 the field vocabulary, unit conversion to canonical units (metres, kilograms),
