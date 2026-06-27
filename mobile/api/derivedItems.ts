@@ -1,0 +1,152 @@
+/**
+ * Typed client for the FTY-051 derived-item edit API.
+ *
+ * The request/response shapes here mirror the corrections + edit contract
+ * (`docs/contracts/corrections.md`): a single field override per `PATCH`, scoped
+ * to the authenticated owner by the `{userId}` path, returning the updated
+ * derived item carrying **both** the current values and the immutable
+ * estimated/original snapshot. The UI is a thin consumer — the ratio rescale,
+ * single-field override, and estimated-value preservation all live server-side;
+ * a servings/quantity edit returns server-rescaled calories/macros that the UI
+ * re-renders rather than computing (FTY-050).
+ *
+ * Privacy: item values (calories, macros, burn) are sensitive personal data.
+ * They are never logged here, and errors carry only the HTTP status and the
+ * attempted action — never the request body or any value.
+ */
+
+/** Resolution status of a derived item (mirrors the backend `DerivedItemStatus`). */
+export type DerivedItemStatus = "unresolved" | "resolved";
+
+/** Discriminator for the two derived-item kinds. */
+export type DerivedItemType = "food" | "exercise";
+
+/**
+ * Edit response for a food item: the editable current values plus the immutable
+ * estimated/original snapshot the backend preserves. `amount` is the current
+ * servings/quantity (driven by a `quantity` edit); there is no estimated
+ * snapshot for it, since quantity is an input that drives the rescale, not a
+ * snapshotted estimator output.
+ */
+export interface DerivedFoodItemDTO {
+  readonly item_type: "food";
+  readonly id: string;
+  readonly user_id: string;
+  readonly log_event_id: string;
+  readonly name: string;
+  readonly quantity_text: string;
+  readonly unit: string | null;
+  readonly amount: number | null;
+  readonly status: DerivedItemStatus;
+  readonly grams: number | null;
+  readonly calories: number | null;
+  readonly protein_g: number | null;
+  readonly carbs_g: number | null;
+  readonly fat_g: number | null;
+  readonly calories_estimated: number | null;
+  readonly protein_g_estimated: number | null;
+  readonly carbs_g_estimated: number | null;
+  readonly fat_g_estimated: number | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/** Edit response for an exercise item: current burn plus the original snapshot. */
+export interface DerivedExerciseItemDTO {
+  readonly item_type: "exercise";
+  readonly id: string;
+  readonly user_id: string;
+  readonly log_event_id: string;
+  readonly name: string;
+  readonly quantity_text: string;
+  readonly unit: string | null;
+  readonly amount: number | null;
+  readonly status: DerivedItemStatus;
+  readonly active_calories: number | null;
+  readonly active_calories_estimated: number | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/** A derived food or exercise item, discriminated by `item_type`. */
+export type DerivedItem = DerivedFoodItemDTO | DerivedExerciseItemDTO;
+
+/** Authenticated session needed to address the owner's derived items. */
+export interface DerivedItemSession {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly userId: string;
+}
+
+/** Raised when the derived-item edit API returns a non-2xx status. */
+export class DerivedItemApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "DerivedItemApiError";
+    this.status = status;
+  }
+}
+
+function authHeaders(session: DerivedItemSession): Record<string, string> {
+  return {
+    Authorization: `Bearer ${session.token}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+}
+
+function editUrl(
+  session: DerivedItemSession,
+  itemType: DerivedItemType,
+  itemId: string,
+): string {
+  return `${session.baseUrl}/api/users/${encodeURIComponent(
+    session.userId,
+  )}/derived-items/${itemType}/${encodeURIComponent(itemId)}`;
+}
+
+async function readError(
+  response: Response,
+  action: string,
+): Promise<DerivedItemApiError> {
+  // Map the documented status codes to plain, nonjudgmental messages. A 422 from
+  // the edit endpoint carries a machine code (`unknown_field`, `out_of_range`,
+  // …) but never echoes the value; the message here stays generic and never
+  // reflects any value the user typed back at them.
+  const message =
+    response.status === 401
+      ? "Your session has expired. Sign in again to keep editing."
+      : response.status === 404
+        ? "We couldn't find that item."
+        : response.status === 422
+          ? "That value couldn't be saved. Check it and try again."
+          : `Could not ${action} (status ${response.status}).`;
+  return new DerivedItemApiError(response.status, message);
+}
+
+/**
+ * Edit one field of the owner's derived item (FTY-051). Sends a single
+ * `field`/`value` override in canonical units (kcal, grams, or servings) and
+ * returns the updated item — including any server-rescaled calories/macros when
+ * the edited field is a food `quantity`. One `PATCH` per field is intentional and
+ * matches the contract; the UI never batches fields.
+ */
+export async function editDerivedItem(
+  session: DerivedItemSession,
+  itemType: DerivedItemType,
+  itemId: string,
+  field: string,
+  value: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DerivedItem> {
+  const response = await fetchImpl(editUrl(session, itemType, itemId), {
+    method: "PATCH",
+    headers: authHeaders(session),
+    body: JSON.stringify({ field, value }),
+  });
+  if (!response.ok) {
+    throw await readError(response, "save your correction");
+  }
+  return (await response.json()) as DerivedItem;
+}

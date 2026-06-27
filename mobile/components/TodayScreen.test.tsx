@@ -2,6 +2,7 @@ import { act, create as render, type ReactTestRenderer } from "react-test-render
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { TodayScreen } from "./TodayScreen";
+import type { DerivedFoodItemDTO } from "@/api/derivedItems";
 import { LogEventApiError, type LogEventDTO } from "@/api/logEvents";
 import type { Session } from "@/state/session";
 
@@ -193,6 +194,90 @@ describe("TodayScreen", () => {
     expect(textContent(tree)).toContain("That entry couldn't be saved.");
     // Optimistic entry rolled back to the empty state.
     expect(textContent(tree)).toContain("Nothing logged yet");
+  });
+});
+
+function foodItem(
+  overrides: Partial<DerivedFoodItemDTO> = {},
+): DerivedFoodItemDTO {
+  return {
+    item_type: "food",
+    id: "item-1",
+    user_id: SESSION!.userId,
+    log_event_id: "a",
+    name: "Greek yogurt",
+    quantity_text: "1 cup",
+    unit: "cup",
+    amount: 1,
+    status: "resolved",
+    grams: 245,
+    calories: 150,
+    protein_g: 20,
+    carbs_g: 8,
+    fat_g: 4,
+    calories_estimated: 150,
+    protein_g_estimated: 20,
+    carbs_g_estimated: 8,
+    fat_g_estimated: 4,
+    created_at: "2026-06-26T08:00:00Z",
+    updated_at: "2026-06-26T08:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("TodayScreen derived items", () => {
+  it("renders editable item controls beneath an event that has derived items", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([event({ id: "a", raw_text: "Greek yogurt", status: "completed" })]);
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        items={{ a: [foodItem()] }}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    expect(hasA11yLabel(tree, "Edit Calories")).toBe(true);
+    expect(textContent(tree)).toContain("Greek yogurt");
+  });
+
+  it("reconciles a confirmed edit into the timeline", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([event({ id: "a", raw_text: "Greek yogurt", status: "completed" })]);
+    const editItem = jest
+      .fn()
+      .mockResolvedValue(foodItem({ calories: 200, calories_estimated: 150 }));
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        editItem={editItem}
+        items={{ a: [foodItem()] }}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    press(tree, "Edit Calories");
+    typeInto(tree, "Calories value", "200");
+    await act(async () => {
+      press(tree, "Save Calories");
+    });
+
+    expect(editItem).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: SESSION!.userId }),
+      "food",
+      "item-1",
+      "calories",
+      200,
+    );
+    const content = textContent(tree);
+    expect(content).toContain("Edited");
+    expect(content).toContain("was 150");
   });
 });
 
