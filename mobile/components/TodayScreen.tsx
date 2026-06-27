@@ -381,9 +381,13 @@ export function TodayScreen({
     getDailySummary(apiSession).then(
       (loaded) => {
         setSummary(loaded);
+        // Clear any stale error so a recovered poll drops the error banner —
+        // DailySummary renders its error branch ahead of the summary, so without
+        // this an initial-load failure would stick even once good data arrives.
+        setSummaryError(null);
       },
       () => {
-        // Keep the current summary; retry on the next interval.
+        // Keep the current summary and any existing error; retry next interval.
       },
     );
   }, [apiSession, load, getDailySummary]);
@@ -594,28 +598,34 @@ function Timeline({
         </View>
       );
     }
-    if (phase === "error") {
-      return (
-        <View style={styles.state}>
-          <Text style={styles.stateText} accessibilityRole="alert">
-            {loadError}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Try again"
-            onPress={onRetry}
-            style={styles.retry}
-          >
-            <Text style={styles.retryLabel}>Try again</Text>
-          </Pressable>
-        </View>
-      );
-    }
+    // A day with nothing logged still has a summary: zeroed intake and the
+    // calorie target. Render it (and any summary error) above the empty state so
+    // the target is visible before the first entry — DailySummary returns null
+    // when there is neither summary nor error, so this stays clean.
     return (
-      <View style={styles.state}>
-        <Text style={styles.stateText}>
-          Nothing logged yet. Add your first food or exercise above.
-        </Text>
+      <View>
+        <DailySummary summary={summary} error={summaryError} />
+        {phase === "error" ? (
+          <View style={styles.state}>
+            <Text style={styles.stateText} accessibilityRole="alert">
+              {loadError}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Try again"
+              onPress={onRetry}
+              style={styles.retry}
+            >
+              <Text style={styles.retryLabel}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.state}>
+            <Text style={styles.stateText}>
+              Nothing logged yet. Add your first food or exercise above.
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
