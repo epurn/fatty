@@ -10,7 +10,7 @@ See ``docs/contracts/llm-provider.md`` for the contract.
 
 from __future__ import annotations
 
-from app.llm.base import Provider
+from app.llm.base import ImageInput, Provider
 from app.llm.config import LLMSettings, ProviderName, load_llm_settings
 from app.llm.errors import (
     LLMConfigurationError,
@@ -22,6 +22,7 @@ from app.llm.errors import (
 from app.llm.factory import build_provider
 
 __all__ = [
+    "ImageInput",
     "LLMConfigurationError",
     "LLMError",
     "LLMResponseError",

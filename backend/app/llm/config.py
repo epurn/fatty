@@ -57,6 +57,11 @@ class LLMSettings(BaseModel):
     #: Number of *additional* attempts after the first on transient failures.
     #: ``0`` disables retries. A documented tunable.
     max_retries: int = Field(default=2, ge=0, le=10)
+    #: Declares the configured model as vision-capable. Image input
+    #: (``structured_completion(..., images=...)``) is rejected fast unless this
+    #: is set, so an image is never sent to a model that cannot read it. The
+    #: operator opts in per the model they configured.
+    supports_vision: bool = Field(default=False)
 
     @model_validator(mode="after")
     def _check_provider_requirements(self) -> LLMSettings:

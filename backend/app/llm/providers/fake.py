@@ -10,11 +10,12 @@ received so tests can assert on call behavior without inspecting logs.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
 
-from app.llm.base import Provider
+from app.llm.base import ImageInput, Provider
 from app.llm.errors import LLMConfigurationError, LLMError
 
 
@@ -27,6 +28,9 @@ class FakeProvider(Provider):
             of returned — use a transient error to drive the retry path.
         timeout_seconds: accepted for interface parity; the fake never waits.
         max_retries: retry bound applied by the base class.
+        supports_vision: declares the fake as vision-capable so image input is
+            accepted rather than rejected — used to stand in for a vision model
+            in tests without any network call.
     """
 
     name = "fake"
@@ -37,16 +41,30 @@ class FakeProvider(Provider):
         responses: list[dict[str, Any] | LLMError] | None = None,
         timeout_seconds: float = 1.0,
         max_retries: int = 0,
+        supports_vision: bool = False,
     ) -> None:
-        super().__init__(timeout_seconds=timeout_seconds, max_retries=max_retries)
+        super().__init__(
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            supports_vision=supports_vision,
+        )
         self._responses: deque[dict[str, Any] | LLMError] = deque(responses or [])
         #: Prompts received, in order — for test assertions.
         self.prompts: list[str] = []
+        #: Image counts received per call, in order — lets tests assert images
+        #: reached the provider without the fake ever retaining the bytes.
+        self.image_counts: list[int] = []
 
     def _complete(
-        self, prompt: str, schema: type[BaseModel], *, timeout_seconds: float
+        self,
+        prompt: str,
+        schema: type[BaseModel],
+        *,
+        images: Sequence[ImageInput] | None,
+        timeout_seconds: float,
     ) -> dict[str, Any]:
         self.prompts.append(prompt)
+        self.image_counts.append(len(images) if images else 0)
         if not self._responses:
             raise LLMConfigurationError("fake provider has no scripted response")
         item = self._responses.popleft()

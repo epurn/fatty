@@ -8,6 +8,7 @@ reach the logs.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import Any
@@ -17,16 +18,22 @@ import pytest
 from app.llm import transport
 from app.llm.errors import LLMResponseError, LLMTransientError
 from app.llm.providers.openai import OpenAIProvider
-from tests.llm.conftest import Candidate, openai_completion
+from tests.llm.conftest import (
+    SENSITIVE_IMAGE_BYTES,
+    Candidate,
+    openai_completion,
+    sample_image,
+)
 
 
-def _provider() -> OpenAIProvider:
+def _provider(*, supports_vision: bool = False) -> OpenAIProvider:
     return OpenAIProvider(
         api_key="sk-secret-key",
         model="gpt-4o-mini",
         base_url="https://api.openai.com/v1/",
         timeout_seconds=5.0,
         max_retries=0,
+        supports_vision=supports_vision,
     )
 
 
@@ -58,6 +65,32 @@ def test_builds_request_and_parses_content(monkeypatch: pytest.MonkeyPatch) -> N
     assert response_format["json_schema"]["name"] == "Candidate"
     # The JSON Schema sent to the provider is derived from the Pydantic model.
     assert response_format["json_schema"]["schema"] == Candidate.model_json_schema()
+
+
+def test_image_is_sent_as_a_data_url_content_part(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_post_json(
+        url: str, *, headers: dict[str, str], payload: dict[str, Any], timeout_seconds: float
+    ) -> dict[str, Any]:
+        captured["payload"] = payload
+        return openai_completion(json.dumps({"name": "granola bar", "calories": 190}))
+
+    monkeypatch.setattr(transport, "post_json", fake_post_json)
+
+    result = _provider(supports_vision=True).structured_completion(
+        "extract the facts", Candidate, images=[sample_image()]
+    )
+
+    assert result == Candidate(name="granola bar", calories=190)
+    content = captured["payload"]["messages"][0]["content"]
+    # The prompt is the leading text part; the image follows as an image_url part.
+    assert content[0] == {"type": "text", "text": "extract the facts"}
+    encoded = base64.b64encode(SENSITIVE_IMAGE_BYTES).decode("ascii")
+    assert content[1] == {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
 
 
 def test_non_json_content_is_a_response_error(monkeypatch: pytest.MonkeyPatch) -> None:

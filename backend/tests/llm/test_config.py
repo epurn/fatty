@@ -42,6 +42,25 @@ def test_load_openai_from_env() -> None:
     assert settings.resolved_base_url() == DEFAULT_OPENAI_BASE_URL
 
 
+def test_supports_vision_defaults_off() -> None:
+    settings = LLMSettings()
+
+    assert settings.supports_vision is False
+
+
+def test_supports_vision_loaded_from_env() -> None:
+    settings = load_llm_settings(
+        {
+            "FATTY_LLM_PROVIDER": "openai",
+            "FATTY_LLM_API_KEY": "sk-test",
+            "FATTY_LLM_MODEL": "gpt-4o",
+            "FATTY_LLM_SUPPORTS_VISION": "true",
+        }
+    )
+
+    assert settings.supports_vision is True
+
+
 def test_anthropic_uses_default_base_url() -> None:
     settings = LLMSettings(provider="anthropic", api_key=SecretStr("k"), model="claude")
 
