@@ -83,8 +83,9 @@ type model struct {
 	view       viewMode
 	returnView viewMode // where esc goes back to from the story view
 
-	targets  []target // overview rail
-	selected int      // overview rail selection
+	targets      []target // overview rail
+	agentTargets int      // count of leading "agent" targets (before RUNS)
+	selected     int      // overview rail selection
 	queueSel int      // queue table selection
 	storyID  string   // currently inspected story
 
@@ -127,11 +128,14 @@ func startOfDay() time.Time {
 
 func (m *model) buildTargets() {
 	p := m.paths
+	// AGENTS = only the always-on steward (plus the merged stream). The author and
+	// reviewer are one-shot workers, so they appear below as in-flight work, not
+	// standing agents.
 	targets := []target{
 		{title: "all activity", sources: []string{p.StewardEvents, p.ReviewerEvents, p.AuthorEvents}, level: "agent", meta: "merged"},
 		{title: "steward", sources: []string{p.StewardEvents}, level: "agent", meta: serviceMeta(m.services, "steward")},
-		{title: "reviewer", sources: []string{p.ReviewerEvents}, level: "agent", meta: serviceMeta(m.services, "reviewer")},
 	}
+	m.agentTargets = len(targets)
 	for _, r := range m.runs {
 		meta, lvl := "idle", "idle"
 		if r.Active {
@@ -143,6 +147,16 @@ func (m *model) buildTargets() {
 			sources:   []string{r.EventsPath, p.StewardEvents, p.ReviewerEvents, p.AuthorEvents},
 			runFilter: r.ID,
 			level:     lvl,
+		})
+	}
+	for _, pr := range m.reviews {
+		id := fmt.Sprintf("PR-%d", pr)
+		targets = append(targets, target{
+			title:     id + " review",
+			meta:      "reviewing",
+			sources:   []string{p.ReviewerEvents, p.StewardEvents},
+			runFilter: id,
+			level:     "running",
 		})
 	}
 	m.targets = targets
@@ -500,8 +514,8 @@ func (m model) railView() string {
 	var b strings.Builder
 	b.WriteString(ui.TableHead.Render("AGENTS") + "\n")
 	for i, t := range m.targets {
-		if i == 3 && len(m.targets) > 3 {
-			b.WriteString("\n" + ui.TableHead.Render("RUNS") + "\n")
+		if i == m.agentTargets && len(m.targets) > m.agentTargets {
+			b.WriteString("\n" + ui.TableHead.Render("RUNS & REVIEWS") + "\n")
 		}
 		b.WriteString(m.railRow(t, i == m.selected, w) + "\n")
 	}

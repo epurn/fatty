@@ -41,8 +41,26 @@ func TestViewsRenderWithoutPanic(t *testing.T) {
 			{ID: "FTY-061", State: "ready", Lane: "estimator", Deps: []string{"FTY-077"}, UnmetDeps: []string{"FTY-077"}},
 			{ID: "FTY-099", State: "needs_attention", Lane: "infra", Attempts: 3},
 		},
-		usage: usage,
+		usage:   usage,
+		reviews: []int{14},
 	})
+	// An in-flight review should appear as a rail target; the reviewer should no
+	// longer be a standing agent.
+	foundReview, foundStandingReviewer := false, false
+	for _, tg := range m.targets {
+		if tg.runFilter == "PR-14" {
+			foundReview = true
+		}
+		if tg.title == "reviewer" {
+			foundStandingReviewer = true
+		}
+	}
+	if !foundReview {
+		t.Error("in-flight review PR-14 should appear as a rail target")
+	}
+	if foundStandingReviewer {
+		t.Error("reviewer should no longer be a standing agent target")
+	}
 
 	for _, v := range []viewMode{viewOverview, viewQueue, viewUsage} {
 		mv, _ := m.switchView(v)
