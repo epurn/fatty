@@ -93,6 +93,12 @@ FTY-043 `exercise_calculate` step. (FTY-040 shipped two stub steps; FTY-042 repl
 FTY-043 replaced `stub_calculate` with the deterministic MET exercise-burn step —
 see `exercise-burn.md`. Food resolution, FTY-044, is still to come.)
 
+A log event carrying a user-provided **nutrition-label image** (FTY-061) runs a
+separate `label_pipeline(provider)` instead — a single `label_resolve` step that
+reads the image through the v2 vision provider and costs it deterministically,
+because a label event has an image rather than NL text. It uses the same step-signal
+vocabulary and status transitions; see `label-extraction.md`.
+
 ## Outputs / State machine
 
 The worker reuses the FTY-030 `LEGAL_TRANSITIONS` map (it does not redefine it):

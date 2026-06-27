@@ -194,3 +194,39 @@ def scale_facts(facts: NutritionFacts, grams: float) -> ScaledNutrition:
         carbs_g=round(facts.carbs_g * factor, 1),
         fat_g=round(facts.fat_g * factor, 1),
     )
+
+
+def serving_size_grams(amount: float, unit: str) -> float | None:
+    """Resolve a label's printed serving size (``amount`` + ``unit``) to grams.
+
+    Reuses the same mass/volume rule as :func:`resolve_grams` (1 ml ≈ 1 g), but
+    deliberately rejects a *count* serving size ("1 bar", "2 cookies") with no
+    mass/volume: a confident nutrition-label resolution needs a gram/millilitre
+    serving size to convert the printed per-serving facts to canonical per-100g
+    (:func:`per_serving_to_per_100g`). Returns ``None`` when ``amount`` is not
+    positive or the unit is not a recognised mass/volume, so the caller fails
+    closed (routes to ``needs_clarification``) rather than guess.
+    """
+
+    if amount <= 0:
+        return None
+    return _grams_from_measure(_normalize_unit(unit), amount)
+
+
+def per_serving_to_per_100g(per_serving: NutritionFacts, serving_g: float) -> NutritionFacts:
+    """Convert printed **per-serving** label facts to canonical **per-100g** facts.
+
+    Deterministic and pure: each value is scaled by ``100 / serving_g`` so the
+    result is the per-100-gram facts the rest of the serving math
+    (:func:`scale_facts`) consumes, identical to how a generic-source or OFF
+    per-serving fact would be canonicalised. ``serving_g`` must be positive
+    (resolved first via :func:`serving_size_grams`).
+    """
+
+    factor = 100.0 / serving_g
+    return NutritionFacts(
+        calories=per_serving.calories * factor,
+        protein_g=per_serving.protein_g * factor,
+        carbs_g=per_serving.carbs_g * factor,
+        fat_g=per_serving.fat_g * factor,
+    )
