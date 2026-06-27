@@ -280,6 +280,58 @@ def test_failure_statuses_do_not_leak_query_or_key() -> None:
     assert result.candidates == ()
 
 
+# --- Non-conforming provider body (untrusted input → status, not exception) ---
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        pytest.param({"web": {"results": [{"url": 12345, "title": "n"}]}}, id="non_string_url"),
+        pytest.param({"web": {"results": "not-a-list"}}, id="non_list_results"),
+        pytest.param({"web": "not-a-dict"}, id="non_dict_web"),
+        pytest.param(
+            {"web": {"results": [{"url": "https://a.example.com", "title": 99}]}},
+            id="non_string_title",
+        ),
+    ],
+)
+def test_malformed_response_body_maps_to_failed(malformed: dict[str, Any]) -> None:
+    # The body is untrusted (the base URL is self-host-overridable). A non-conforming
+    # reply must resolve to a status, never escape as an uncaught ValidationError whose
+    # repr would echo the provider input.
+    provider, _ = _provider(malformed)
+
+    result = provider.search("item")
+
+    assert result.status is SearchStatus.FAILED
+    assert result.candidates == ()
+
+
+def test_malformed_response_does_not_leak_provider_input() -> None:
+    input_marker = "leaked-provider-input-marker"
+    provider, _ = _provider({"web": {"results": [{"url": object(), "title": input_marker}]}})
+
+    result = provider.search("item")
+
+    # The status is content-free; the untrusted body never surfaces.
+    assert result.status is SearchStatus.FAILED
+    assert input_marker not in repr(result)
+
+
+def test_overlong_title_is_truncated_not_rejected() -> None:
+    # One overlong title must not fail the whole (otherwise usable) reply — it is a
+    # guard on untrusted content, so it truncates rather than mapping to FAILED.
+    reply = {"web": {"results": [{"url": "https://a.example.com", "title": "T" * 5000}]}}
+    provider, _ = _provider(reply)
+
+    result = provider.search("item")
+
+    assert result.status is SearchStatus.SUCCESS
+    assert len(result.candidates) == 1
+    assert len(result.candidates[0].title) == 300
+    assert result.candidates[0].url == "https://a.example.com"
+
+
 # --- Config contract ----------------------------------------------------------
 
 

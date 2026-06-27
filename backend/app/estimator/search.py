@@ -48,7 +48,15 @@ from enum import StrEnum
 from typing import Any, Final, Protocol, runtime_checkable
 from urllib.parse import urlencode, urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.estimator.hardened_fetch import (
     FetchPolicyError,
@@ -272,7 +280,23 @@ class BraveResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     url: str = ""
-    title: str = Field(default="", max_length=_MAX_TITLE_LEN)
+    title: str = ""
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _truncate_title(cls, value: Any) -> Any:
+        """Truncate (not reject) an overlong title.
+
+        The title bound is a guard on untrusted provider content, not a contract the
+        provider must honour: one overlong title truncates rather than failing the
+        whole reply (which would map an otherwise-usable answer to
+        :attr:`SearchStatus.FAILED`). Non-string values fall through to normal
+        validation, which fails closed into the caller's status mapping.
+        """
+
+        if isinstance(value, str):
+            return value[:_MAX_TITLE_LEN]
+        return value
 
 
 class BraveWeb(BaseModel):
@@ -428,8 +452,14 @@ class BraveSearchProvider:
         except FetchPolicyError:
             return SearchResult(status=SearchStatus.FAILED)
 
-        response = BraveResponse.model_validate(raw)
-        candidates = _map_candidates(response, self._settings.max_results)
+        try:
+            response = BraveResponse.model_validate(raw)
+            candidates = _map_candidates(response, self._settings.max_results)
+        except ValidationError:
+            # A non-conforming / hostile body (the base URL is self-host-overridable,
+            # so the payload is untrusted) maps to a status like any other failure —
+            # never an uncaught exception whose repr would echo the provider input.
+            return SearchResult(status=SearchStatus.FAILED)
         if not candidates:
             # The provider answered but offered no usable candidate URL.
             return SearchResult(status=SearchStatus.PARTIAL)
