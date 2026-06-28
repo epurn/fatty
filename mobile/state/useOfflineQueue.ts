@@ -133,6 +133,14 @@ export function useOfflineQueue(args: {
     const previous = prevUserId.current;
     if (previous !== null && previous !== userId) {
       void store.clear(previous);
+      // Reset the in-memory view on a real user transition, independent of what
+      // the new user's store returns. Otherwise, if the next user has no stored
+      // backlog the load below early-returns and the previous user's queued
+      // entries stay in component state — leaking their raw captures into the
+      // new user's session (drained under the new session). The privacy
+      // guarantee this slice codifies requires clearing memory, not just disk.
+      setEntries(EMPTY);
+      setReachability("online");
     }
     prevUserId.current = userId;
 
