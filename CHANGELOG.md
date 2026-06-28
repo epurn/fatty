@@ -66,18 +66,20 @@ First stable release of Fatty, an iOS-first, self-hostable calorie and macro tra
 
 ## Version Sources
 
-The canonical version is set in two places that must match:
+The canonical version is set in three places that must match:
 
 | File | Field |
 | --- | --- |
 | `backend/pyproject.toml` | `[project] version` |
 | `mobile/package.json` | `"version"` |
+| `mobile/app.json` | `expo.version` (ships as the iOS `CFBundleShortVersionString`) |
 
 To verify consistency:
 
 ```sh
 grep '^version' backend/pyproject.toml
 node -p "require('./mobile/package.json').version"
+node -p "require('./mobile/app.json').expo.version"
 ```
 
 Both must read `1.0.0` for a v1 release.
