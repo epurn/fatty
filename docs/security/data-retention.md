@@ -22,7 +22,32 @@ Retention defaults should minimize stored personal data while preserving user va
 
 ## Deletion Requirements
 
-- Users must be able to delete entries, attachments, saved foods, recipes, aliases, memories, weight entries, and accounts.
+Users must be able to delete their own data at two levels — direct deletion of
+individual items, and full account deletion. The data model is built for this:
+user-owned rows are `ON DELETE CASCADE` from the user (and from their parent log
+event where applicable), so deleting a user or a parent record removes the
+dependent rows.
+
+**Required — direct user-initiated deletion** of individual items:
+- Food and exercise log entries (cascading to derived items, clarification questions, evidence sources, and corrections).
+- Body weight entries.
+- Saved foods, recipes, aliases, and portion memories.
+- Attachments (nutrition label images).
+
+**Required — account deletion**, cascading to all user-owned data (profile, logs,
+entries, saved foods, memories, attachments, corrections, weight history,
+evidence) and the user and auth identity.
+
+As-built status: only body weight entries currently expose a deletion endpoint
+(`DELETE /api/users/{user_id}/weight-entries/{entry_id}`, FTY-070). The remaining
+direct-deletion endpoints and the account-deletion endpoint are required for
+release but **not yet implemented**; the schema-level cascades above are already
+in place to support them. By design there is no per-item `DELETE` for individual
+`evidence_sources` or `clarification_questions` — they are removed only as cascade
+consequences of deleting the parent log event, user, or account. Global source
+facts (`products`, cached USDA/OFF data) remain after user deletion since they
+contain no user-specific data.
+
 - Deletion should remove or anonymize user-specific data from derived summaries.
 - Global source facts may remain if they contain no user-specific data.
 
