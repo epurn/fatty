@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,11 +16,14 @@ from app.schemas.auth import (
     TokenResponse,
     UserDTO,
 )
+from app.security.rate_limit import RateLimitDecision, RateLimiter, account_key, ip_key
 from app.services import auth as auth_service
 from app.services.auth import AuthError, IssuedToken
 from app.settings import Settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+logger = logging.getLogger(__name__)
 
 _CONFLICT_STATUS = {
     "conflict": status.HTTP_409_CONFLICT,
@@ -36,13 +40,64 @@ def _settings(request: Request) -> Settings:
     return settings
 
 
+def _client_ip(request: Request, settings: Settings) -> str:
+    """Return the effective client IP.
+
+    Defaults to ``request.client.host`` (the real peer). Honours the first hop
+    of ``X-Forwarded-For`` only when ``settings.rate_limit_trusted_proxy`` is
+    explicitly enabled — trusting an arbitrary inbound header would let an
+    attacker forge a fresh key per request and nullify per-IP limiting.
+    """
+    if settings.rate_limit_trusted_proxy:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_rate_limit(
+    limiter: RateLimiter,
+    key: str,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    """Enforce one rate-limit key; raise 429 if throttled. Fail open on error.
+
+    If the limiter raises (e.g. Redis unavailable) the request is allowed and a
+    warning is logged so the degraded window is visible without turning an infra
+    blip into an auth outage.
+    """
+    decision: RateLimitDecision
+    try:
+        decision = limiter.check(key, limit, window_seconds)
+    except Exception:
+        logger.warning("rate-limit check raised; allowing request (fail-open)")
+        return
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": str(decision.retry_after)},
+        )
+
+
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 def register(
     payload: RegisterRequest,
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(_settings)],
 ) -> RegisterResponse:
     """Register a new local user and return the user plus a session token."""
+
+    limiter: RateLimiter = request.app.state.rate_limiter
+    ip = _client_ip(request, settings)
+    _enforce_rate_limit(
+        limiter,
+        ip_key(ip, "register"),
+        settings.rate_limit_register_ip_max,
+        settings.rate_limit_register_ip_window,
+    )
 
     try:
         user, issued = auth_service.register_user(
@@ -57,10 +112,32 @@ def register(
 @router.post("/login", response_model=TokenResponse)
 def login(
     payload: LoginRequest,
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     settings: Annotated[Settings, Depends(_settings)],
 ) -> TokenResponse:
     """Verify credentials and return a bearer token."""
+
+    limiter: RateLimiter = request.app.state.rate_limiter
+    ip = _client_ip(request, settings)
+
+    # Per-IP check first; short-circuits before the per-account check and before
+    # the credential verify so a flood pays no hash/DB cost.
+    _enforce_rate_limit(
+        limiter,
+        ip_key(ip, "login"),
+        settings.rate_limit_login_ip_max,
+        settings.rate_limit_login_ip_window,
+    )
+    # Per-account check blunts credential-stuffing that rotates IPs against one
+    # account. Same 429 short-circuit for both known and unknown emails — no
+    # account-existence oracle is added.
+    _enforce_rate_limit(
+        limiter,
+        account_key(payload.email),
+        settings.rate_limit_login_account_max,
+        settings.rate_limit_login_account_window,
+    )
 
     try:
         _, issued = auth_service.authenticate(

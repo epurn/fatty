@@ -19,6 +19,7 @@ from sqlalchemy.engine import Engine
 from alembic import command
 from app.db import create_db_engine
 from app.main import create_app
+from app.security.rate_limit import InMemoryRateLimiter
 from app.settings import Settings
 
 
@@ -85,16 +86,33 @@ def enqueuer() -> RecordingEnqueuer:
 
 
 @pytest.fixture
-def client(db_engine: Engine, enqueuer: RecordingEnqueuer) -> Iterator[TestClient]:
+def rate_limiter() -> InMemoryRateLimiter:
+    """A fresh in-memory rate limiter installed on the test app (FTY-118).
+
+    Tests that need to control or inspect rate-limit state can request this
+    fixture directly alongside ``client``.
+    """
+
+    return InMemoryRateLimiter()
+
+
+@pytest.fixture
+def client(
+    db_engine: Engine, enqueuer: RecordingEnqueuer, rate_limiter: InMemoryRateLimiter
+) -> Iterator[TestClient]:
     """A TestClient wired to the migrated SQLite database.
 
     The estimation enqueuer is replaced with the recording double so creating a
     log event does not reach a live broker; tests requesting the ``enqueuer``
     fixture see the same instance.
+
+    The rate limiter is replaced with an in-memory double so auth endpoint tests
+    need no live Redis; tests requesting ``rate_limiter`` see the same instance.
     """
 
     settings = Settings(environment="test", log_level="WARNING")
     app = create_app(settings=settings, engine=db_engine)
     app.state.estimation_enqueuer = enqueuer
+    app.state.rate_limiter = rate_limiter
     with TestClient(app) as test_client:
         yield test_client

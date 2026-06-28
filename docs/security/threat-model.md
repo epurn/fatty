@@ -46,6 +46,8 @@ weight data. Update it when architecture, data flows, or providers change.
 ## Required Controls
 
 - Object-level auth tests for user-owned resources.
+- Rate limiting on auth endpoints (per-IP and per-account on login; per-IP on
+  register) to bound online brute-force and credential-stuffing (FTY-118).
 - Strict provider/tool allowlists.
 - SSRF-hardened fetcher.
 - Structured LLM output validation.

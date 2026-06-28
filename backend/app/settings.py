@@ -56,6 +56,23 @@ class Settings(BaseModel):
     auth_secret: SecretStr = Field(default=SecretStr(DEV_AUTH_SECRET))
     # Bearer-token lifetime in seconds (default 7 days for a self-host session).
     auth_token_ttl_seconds: int = Field(default=7 * 24 * 3600, ge=60)
+    # Auth-endpoint rate limiting (FTY-118).
+    # Login: per-source-IP limit and per-account (hashed email) limit.
+    # Register: per-source-IP limit only (bulk-account abuse is per-source).
+    # Defaults are generous to leave ample headroom for human fat-fingering and
+    # mobile reconnect re-login; tighten in production via env vars without a code
+    # change.  Window values are in seconds.
+    rate_limit_login_ip_max: int = Field(default=10, ge=1)
+    rate_limit_login_ip_window: int = Field(default=900, ge=1)  # 15 min
+    rate_limit_login_account_max: int = Field(default=5, ge=1)
+    rate_limit_login_account_window: int = Field(default=900, ge=1)  # 15 min
+    rate_limit_register_ip_max: int = Field(default=5, ge=1)
+    rate_limit_register_ip_window: int = Field(default=3600, ge=1)  # 1 hour
+    # When False (default) the limiter keys on request.client.host and ignores
+    # X-Forwarded-For — trusting an arbitrary inbound header would let an attacker
+    # forge a fresh IP key per request and nullify per-IP limiting.  Enable only
+    # when the service sits behind a known, trusted reverse proxy.
+    rate_limit_trusted_proxy: bool = False
 
     @model_validator(mode="after")
     def _require_real_secret_in_production(self) -> Settings:

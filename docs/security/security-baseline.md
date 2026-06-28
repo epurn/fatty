@@ -40,6 +40,15 @@ This project uses the following as design references:
   with stateless, HMAC-SHA256-signed bearer tokens; login is constant-time and does
   not reveal whether an email exists. Tokens are not yet revocable — tracked
   finding.)*
+- Rate-limit the auth endpoints to bound online brute-force and credential-stuffing.
+  *(v1: `POST /api/auth/login` is throttled per source IP and per account (hashed
+  email); `POST /api/auth/register` is throttled per source IP. Backed by the
+  existing Redis so the limit holds across worker processes. Thresholds are
+  configurable via `FATTY_RATE_LIMIT_*` env vars. The limiter runs before the
+  credential check so a throttled request pays no hash/DB cost and equalized timing
+  is preserved. Fails open — a Redis blip allows the request rather than locking
+  users out — and emits a warn-level log. Per-account keys use sha256(email) so no
+  raw PII is stored in Redis. FTY-118.)*
 - Enforce object-level authorization on every user-owned record. *(v1: every
   user-owned service authorizes the owner and scopes the query to the owner, failing
   closed as `404`; proven by the FTY-073 `tests/security/test_authz_fail_closed.py`
