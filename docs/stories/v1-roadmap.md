@@ -262,24 +262,37 @@ draining through the steward in parallel with the mobile-core queue.
 
 ## Queue-Health Tranche (2026-06-28)
 
-Four stories from a queue-health investigation (2026-06-28). Two independent
-**dependency-hygiene** items for the Expo SDK 56 managed mobile app — four
-dependabot PRs (react patch, rn-minor, jest 30, eslint 10) each failed mobile CI
-trying to bump an SDK-governed dep in isolation and were closed. FTY-121 stops the
-doomed PRs (governance); FTY-122 is the supported path that moves the whole pinned
-toolchain together (mobile-core) — independent of FTY-121, either order. Plus the
-fix for the blocking reviewer concern on PR #71 (FTY-101): the Trends adherence
-strip fans out one `getDailySummary` per day (~180/render) over a missing
-read-model. Split per the single-boundary rule into a backend range endpoint +
-contract (FTY-123, the contract change is the one big rock) and its dependent
-mobile consumer (FTY-124, joined by that contract).
+Stories from a queue-health investigation (2026-06-28). A **dependency-hygiene**
+thread for the Expo SDK 56 managed mobile app — four dependabot PRs (react patch,
+rn-minor, jest 30, eslint 10) each failed mobile CI trying to bump an SDK-governed
+dep in isolation and were closed. FTY-121 (merged) stops the doomed PRs; FTY-125
+keeps a single deliberate signal alive so the next SDK still surfaces (see the
+backlog note below — the coordinated upgrade itself is intentionally not a tracked
+story, since no newer stable SDK exists yet). Plus the fix for the blocking
+reviewer concern on PR #71 (FTY-101): the Trends adherence strip fans out one
+`getDailySummary` per day (~180/render) over a missing read-model. Split per the
+single-boundary rule into a backend range endpoint + contract (FTY-123, the
+contract change is the one big rock) and its dependent mobile consumer (FTY-124,
+joined by that contract).
 
 | ID | State | Lane | Story | Acceptance |
 | --- | --- | --- | --- | --- |
 | FTY-121 | merged | governance | [Dependabot ignores SDK-governed mobile deps](FTY-121-dependabot-expo-sdk-ignores.md) | The `/mobile` npm entry ignores SDK-pinned packages (expo/react/react-native/jest/jest-expo/@types/jest, all updates) and major bumps of eslint/eslint-plugin-*/@typescript-eslint/*, so Dependabot stops opening doomed PRs; config-only, no dep bumps. |
-| FTY-122 | candidate | mobile-core | [Upgrade the Expo SDK](FTY-122-expo-sdk-upgrade.md) | **Deferred** — app is already on the newest stable SDK (56); promote to `ready` when Expo ships SDK 57+. When triggered: `expo install --fix` moves react/react-native/jest-expo/jest/eslint as one coherent set; clean lockfile, lint + jest + typecheck green; the only path the closed dependabot bumps land. |
 | FTY-123 | ready | backend-core | [Daily-summary range read endpoint](FTY-123-daily-summary-range-endpoint.md) | New `GET …/daily-summaries?start&end` returns a dense ascending array of the existing `DailySummaryDTO` (one per day) in one call; reuses FTY-071 per-day math; bounded span (422 over max/bad range); owner-scoped fail-closed 404; contract updated; no migration. |
 | FTY-124 | ready | mobile-core | [Trends adherence consumes the range read](FTY-124-mobile-trends-range-read.md) | Trends adherence strip fetches the range in one request via FTY-123 instead of N per-day calls (fixes PR #71's fan-out); adherence math + null-target exclusion unchanged. Dep FTY-123. |
+| FTY-125 | ready | governance | [Dependabot surfaces a new Expo SDK as the upgrade tripwire](FTY-125-dependabot-expo-major-tripwire.md) | Narrows FTY-121's `expo` ignore to patch/minor only, so a **major** `expo` bump (= new SDK release) surfaces as one PR — the deliberate "go upgrade" signal — while in-SDK churn stays quiet. Config-only. |
+
+> **Backlog note — Expo SDK upgrade (not a tracked story).** The coordinated SDK
+> upgrade was scoped as FTY-122 and **dropped on 2026-06-28**: the app is already
+> on the newest stable Expo SDK (56, released 2026-05-21) and no newer SDK exists
+> yet, so there is nothing to upgrade *to*. It is not committed work with an owner.
+> **Trigger:** when Dependabot opens a **major `expo` bump PR** (enabled by
+> FTY-125), a new SDK is out — that is the cue to run the coordinated upgrade:
+> bump `expo`, run `npx expo install --fix` so react / react-native / jest-expo /
+> jest / the eslint toolchain all realign to the new SDK's pinned set, regenerate
+> a clean `mobile/package-lock.json` (no ERESOLVE), apply the minimal forced
+> migrations, and get mobile lint + jest + typecheck green. Promote to a real
+> story at that point if the work warrants tracking.
 
 ## Story Promotion Rule
 
