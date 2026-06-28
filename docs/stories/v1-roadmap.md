@@ -171,22 +171,22 @@ Evidence-backed by default) are auto-enforced.
 
 | ID | State | Lane | Story | Notes |
 | --- | --- | --- | --- | --- |
-| FTY-092 | ready_with_notes | backend-core | [Item provenance + portion adjust](FTY-092-item-provenance-portion-adjust.md) | Per-item source/`is_edited` in the read-model; amount edit recomputes provenance-preserving (not user-edited). Roots the correction sheet. |
-| FTY-093 | ready_with_notes | estimator | [Item re-match](FTY-093-item-rematch-alternative-sources.md) | List alternative sources + re-resolve to a chosen one (honest provenance). Dep FTY-092. |
-| FTY-094 | ready_with_notes | estimator | [Macro targets](FTY-094-macro-targets.md) | Derive P/C/F targets (evidence-based defaults) in the calculator. |
-| FTY-095 | ready_with_notes | backend-core | [Target manual override](FTY-095-target-manual-override.md) | Calorie/macro override + reset + provenance on `daily_targets`. Dep FTY-094 (serialize the migration). |
-| FTY-105 | ready_with_notes | backend-core | [Macro targets in daily-summary](FTY-105-macro-targets-daily-summary.md) | Surface macro targets + provenance through the read-model. Dep FTY-094 + FTY-095. |
-| FTY-096 | ready_with_notes | backend-core | [Offline submit + pending-unparsed](FTY-096-offline-submit-pending-unparsed.md) | Client idempotency-key dedup on log-event create. |
+| FTY-092 | merged | backend-core | [Item provenance + portion adjust](FTY-092-item-provenance-portion-adjust.md) | Per-item source/`is_edited` in the read-model; amount edit recomputes provenance-preserving (not user-edited). Roots the correction sheet. |
+| FTY-093 | merged | estimator | [Item re-match](FTY-093-item-rematch-alternative-sources.md) | List alternative sources + re-resolve to a chosen one (honest provenance). Dep FTY-092. |
+| FTY-094 | merged | estimator | [Macro targets](FTY-094-macro-targets.md) | Derive P/C/F targets (evidence-based defaults) in the calculator. |
+| FTY-095 | merged | backend-core | [Target manual override](FTY-095-target-manual-override.md) | Calorie/macro override + reset + provenance on `daily_targets`. Dep FTY-094 (serialize the migration). |
+| FTY-105 | merged | backend-core | [Macro targets in daily-summary](FTY-105-macro-targets-daily-summary.md) | Surface macro targets + provenance through the read-model. Dep FTY-094 + FTY-095. |
+| FTY-096 | merged | backend-core | [Offline submit + pending-unparsed](FTY-096-offline-submit-pending-unparsed.md) | Client idempotency-key dedup on log-event create. |
 | FTY-106 | ready_with_notes | backend-core | [Goals + target-reveal endpoint](FTY-106-goals-target-reveal-endpoint.md) | New HTTP route: goal from direction+pace → computed target + provenance (FTY-022 had no route). |
-| FTY-097 | ready_with_notes | mobile-core | [Mobile design system](FTY-097-mobile-design-system.md) | Tokens, light/dark charcoal, display+SF type, materials, motion/haptics, 3-tab shell. Every screen depends on this. |
+| FTY-097 | merged | mobile-core | [Mobile design system](FTY-097-mobile-design-system.md) | Tokens, light/dark charcoal, display+SF type, materials, motion/haptics, 3-tab shell. Every screen depends on this. |
 
 **Mobile screen rebuilds (depend on FTY-097 + their backend foundations):**
 
 | ID | State | Lane | Story | Notes |
 | --- | --- | --- | --- | --- |
-| FTY-098 | ready | mobile-core | [Today redesign](FTY-098-today-screen-redesign.md) | Hero/over-budget, macro chips, clustered provenance timeline. Dep FTY-097 + FTY-092 (+ FTY-105 for macro-chip targets). |
-| FTY-099 | ready | mobile-core | [Log page redesign](FTY-099-log-page-redesign.md) | Keyboard-up composer, typeahead, capture affordances, in-place skeleton. Dep FTY-097. |
-| FTY-100 | ready | mobile-core | [Correction sheet](FTY-100-correction-sheet.md) | Portion + change-match + override + clarify + evidence. Dep FTY-097 + FTY-092 + FTY-093. |
+| FTY-098 | merged | mobile-core | [Today redesign](FTY-098-today-screen-redesign.md) | Hero/over-budget, macro chips, clustered provenance timeline. Dep FTY-097 + FTY-092 (+ FTY-105 for macro-chip targets). |
+| FTY-099 | merged | mobile-core | [Log page redesign](FTY-099-log-page-redesign.md) | Keyboard-up composer, typeahead, capture affordances, in-place skeleton. Dep FTY-097. |
+| FTY-100 | merged | mobile-core | [Correction sheet](FTY-100-correction-sheet.md) | Portion + change-match + override + clarify + evidence. Dep FTY-097 + FTY-092 + FTY-093. |
 | FTY-101 | ready | mobile-core | [Trends + weigh-ins](FTY-101-trends-redesign-weighin-reminders.md) | Smoothed weight trend + adherence; weekly due-only reminder. Dep FTY-097. |
 | FTY-102 | ready | mobile-core | [Profile / Settings](FTY-102-profile-settings-redesign.md) | Control panel; target/macro provenance + override. Dep FTY-097 + FTY-094 + FTY-095 (+ FTY-105). |
 | FTY-103 | ready_with_notes | mobile-core | [Onboarding redesign](FTY-103-onboarding-redesign.md) | Goal-led 3-step + target reveal. Dep FTY-097 + FTY-091 + FTY-106. |
@@ -206,6 +206,33 @@ Evidence-backed by default) are auto-enforced.
 - **Contract ownership:** FTY-094 (derive) vs FTY-095 (persist columns) and FTY-095 vs FTY-105 (the `daily-summary.md` version bump) — confirm single ownership before both author, to avoid a double contract-doc edit.
 - **FTY-097 owns the 3-tab shell** — FTY-099 wrote it as a separate nav story; it isn't, 097 covers it.
 - **Activity-level gap:** the design's Profile BODY assumes an activity level, but the backend has no activity field (calculator uses fixed 1.2 sedentary). FTY-102 deferred it; needs a small backend story or a design trim to support it.
+
+## Parallel Quick-Wins (non-mobile lanes — 2026-06-28)
+
+While Milestone 10's mobile-core queue (FTY-090/091/100–104/107) is in flight, a
+cross-lane audit (2026-06-28) surfaced small, high-value hardening/robustness
+fixes in the **idle** lanes so the steward can run them in parallel with the
+mobile work. All independent (`approved_dependencies: []`), each one focused
+single-boundary PR. Theme: **fail-closed** — plausible-but-bad input should
+return a clean 4xx / non-match, never an unhandled 500 or a crashed worker.
+
+Lane note: lanes serialize by changed-file path. FTY-108 (governance), FTY-109
+(infra) and FTY-110 (estimator) each occupy a distinct free lane and run fully
+parallel to mobile and each other. FTY-111 and FTY-112 are both backend-core
+(the security-headers change lives in `backend/app/main.py`, which is
+backend-core, not a non-serializing security-privacy *code* lane), so they
+serialize back-to-back rather than simultaneously.
+
+| ID | State | Lane | Story | Acceptance |
+| --- | --- | --- | --- | --- |
+| FTY-108 | ready | governance | [Expand Dependabot to app deps](FTY-108-dependabot-app-dependencies.md) | Dependabot covers the backend `uv`/pip, mobile `npm`, and Docker base-image ecosystems (not just github-actions); config-only, no dep bumps in the PR. |
+| FTY-109 | ready_with_notes | infra | [Compose network / ops hardening](FTY-109-compose-network-hardening.md) | Postgres/Redis host ports no longer published (unauth Redis off the LAN); worker gains a healthcheck; long-lived services get a restart policy. Redis auth is a noted follow-up. |
+| FTY-110 | ready_with_notes | estimator | [Evidence clients fail closed](FTY-110-evidence-client-fail-closed.md) | A malformed FDC/OFF payload maps to a clean non-retryable ResponseError → non-match/clarify (not a worker-crashing `ValidationError`); over-long fields truncate; `FdcClient.lookup`/`list_matches` dedup so both inherit the guard. |
+| FTY-111 | ready | backend-core | [Fail closed at profile + registration boundary](FTY-111-backend-input-boundary-fail-closed.md) | Explicit-null on a non-nullable profile field → 422 (was 500); the register check-then-insert race returns 409 on the unique-index loser (was 500). No migration, no contract change. |
+| FTY-112 | ready_with_notes | backend-core | [Baseline security headers + prod docs gating](FTY-112-security-headers-prod-docs.md) | Responses carry nosniff / frame / referrer headers; interactive `/docs`/`/redoc`/`/openapi.json` disabled when `environment == production`. Serializes on backend-core after FTY-111. |
+
+**Audit runners-up (not yet queued — quick but a notch more scope or a small decision):**
+nutrition plausibility bound for kJ/kcal confusion (estimator, S/M); retry LLM 429s with backoff (estimator, M); rate-limit auth endpoints (security-privacy, M); non-root backend container (backend-core `Dockerfile`, S); `/readyz` DB probe (backend-core, S); bound weight-entry `effective_date` (backend-core, S); the timezone-window / active-target / `FdcClient` pure-refactor dedups. The known **activity-level gap** (calculator fixed at 1.2 sedentary vs the Profile design) is confirmed real but M+ (estimator + profile schema + migration) — leave as already-planned, not a quick win.
 
 ## Story Promotion Rule
 
