@@ -525,6 +525,9 @@ The write operation takes the existing item plus a **chosen candidate reference*
    source-backed estimate, not a manual override, so the estimated/original snapshot is
    **reset** to the new source's computed values and the item is **not** marked
    `user_edited`.
+5. **Append the `re_match` audit row.** One immutable `re_match` correction (keyed on
+   `calories`) records the re-match and **supersedes** any pre-existing `user_edit`, so a
+   re-matched item reads `is_edited == false` again (see **Re-match vs. `user_edit`**).
 
 Re-resolve is **deterministic**: given the same cached facts, the same chosen reference
 yields the same recomputed item and provenance. The new source reaches the client
@@ -537,10 +540,18 @@ once** and marks any value change `user_edit`. That rule governs the **manual ov
 lever. A **re-match is a re-resolution to a different real source**, so it instead
 **re-snapshots** `*_estimated` to the new source's computed values and leaves the item
 **un-`user_edited`** — the provenance honestly reflects the new source. **A re-match
-writes no `user_edit` correction row** (and `is_edited` stays `false` for a re-matched
-item, per FTY-092). This distinction is deliberate: do **not** "fix" it back to
-`user_edit`. A dedicated re-match audit row is a candidate follow-up; in v1 the change
-of source is carried honestly by the rewritten `evidence_sources` provenance.
+writes no `user_edit` correction row.** This distinction is deliberate: do **not** "fix"
+it back to `user_edit`.
+
+Re-match **does** append one immutable `re_match` correction row (keyed on `calories`,
+the item's headline value). That row is the dedicated re-match audit marker, and it
+**reconciles a pre-existing edit**: because it is the *latest* word on the item's value,
+it **supersedes** any prior `user_edit`, so `is_edited` derives back to **`false`** for a
+re-matched item — even one that had been edited before the re-match (the
+edit-then-rematch sequence). `is_edited` is therefore "a `user_edit` *after* the most
+recent `re_match`"; a genuine new edit made after a re-match makes the item `true` again.
+The change of source itself is also carried honestly by the rewritten `evidence_sources`
+provenance.
 
 ### Backend operation (thin pass-through)
 
@@ -587,10 +598,11 @@ a client cannot smuggle nutrition values through it.
 first energy-bearing match) with a query override and the per-`source_ref` candidate
 cache; listing egresses only the sanitized item identity; `FdcClient.list_matches`
 excludes energy-less results; re-resolve recompute + provenance rewrite + `*_estimated`
-re-snapshot + not-`user_edited` + no `user_edit` row + determinism; identity / portion
-preserved; an un-re-derivable reference and client-supplied facts rejected with no
-mutation; needs-clarification when uncostable; and cross-user / unknown / unauthenticated
-fail-closed.
+re-snapshot + not-`user_edited` + no `user_edit` row + the `re_match` audit row that
+clears a pre-existing edit (`is_edited` false after edit-then-rematch, true again after a
+later edit) + determinism; identity / portion preserved; an un-re-derivable reference and
+client-supplied facts rejected with no mutation; needs-clarification when uncostable; and
+cross-user / unknown / unauthenticated fail-closed.
 
 ## Migration / Compatibility
 

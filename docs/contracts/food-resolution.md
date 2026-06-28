@@ -69,9 +69,10 @@ capability over an existing `derived_food_items` row. It adds `FdcClient.list_ma
 first), reusing the FTY-044 serving math, the `products` / `evidence_sources` ownership
 split, and the hardened-fetch / `sanitize_query` boundaries unchanged. Re-resolve is an
 **in-place `UPDATE`** of the existing resolution columns + `evidence_sources` row +
-`*_estimated` snapshots — **no migration, no new table or column**. The contract lives
-in `evidence-retrieval.md` (**Item Re-match — FTY-093**); the re-snapshot-not-`user_edit`
-distinction is documented there and in `corrections.md`.
+`*_estimated` snapshots, plus one appended `re_match` correction row (which supersedes
+any prior `user_edit` so the item reads un-edited) — **no migration, no new table or
+column**. The contract lives in `evidence-retrieval.md` (**Item Re-match — FTY-093**);
+the re-snapshot-not-`user_edit` distinction is documented there and in `corrections.md`.
 
 ## Inputs
 

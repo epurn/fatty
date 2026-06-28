@@ -10,8 +10,11 @@ boundary, proving the acceptance criteria:
   only, through the FTY-079 ``sanitize_query`` chokepoint;
 - re-resolve recomputes calories/macros from the chosen source at the item's current
   portion, rewrites its ``evidence_sources`` provenance, re-snapshots ``*_estimated``
-  to the new values, leaves the item **un-edited** with **no** ``user_edit`` row, and
-  is deterministic for the same reference;
+  to the new values, writes **no** ``user_edit`` row, and is deterministic for the same
+  reference;
+- re-resolve appends one immutable ``re_match`` audit row that **supersedes** any prior
+  ``user_edit`` — so an edited-then-rematched item honestly reads ``is_edited == false``,
+  while a genuine edit made *after* a re-match marks it edited again;
 - the re-matched item keeps its ``id`` / ``log_event_id`` / portion / timeline slot;
 - a reference the server cannot re-derive (and any attempt to pass facts directly) is
   rejected with no mutation, and re-resolve issues no network egress;
@@ -34,7 +37,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.db import create_session_factory
-from app.enums import CorrectionSource, DerivedItemStatus, SourceType
+from app.enums import CandidateType, CorrectionSource, DerivedItemStatus, SourceType
 from app.estimator.fdc import (
     FDC_SOURCE,
     FdcClient,
@@ -53,6 +56,7 @@ from app.models.corrections import Correction
 from app.models.derived import DerivedFoodItem
 from app.models.food_sources import EvidenceSource, Product
 from app.models.identity import User
+from app.services import item_read_model
 from tests.corrections_helpers import register, seed_evidence, seed_food_item
 
 # ---------------------------------------------------------------------------
@@ -335,6 +339,97 @@ def test_re_resolve_recomputes_rewrites_provenance_and_resnapshots(
     )
 
 
+def test_re_resolve_appends_a_re_match_audit_row(
+    client: TestClient, db_engine: Engine, session: Session
+) -> None:
+    user_id, _auth = register(client, "rematch-audit@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    _add_candidate_product(session, source_ref="usda_fdc:NEW", calories_per_100g=120.0)
+
+    _capability(session, FakeListSource([])).re_resolve(
+        owner_id=uuid.UUID(user_id),
+        current_user=_user(session, user_id),
+        item_id=item_id,
+        source_ref="usda_fdc:NEW",
+    )
+
+    # The re-match is recorded as exactly one immutable `re_match` audit row (keyed on the
+    # headline calories value), never a `user_edit` — so the item is not marked edited.
+    rows = session.scalars(
+        select(Correction).where(Correction.derived_food_item_id == item_id)
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].source == CorrectionSource.RE_MATCH
+    assert rows[0].field == "calories"
+    assert rows[0].old_value == pytest.approx(300.0)
+    assert rows[0].new_value == pytest.approx(360.0)
+    assert item_read_model.item_is_edited(session, CandidateType.FOOD, item_id) is False
+
+
+def test_re_resolve_supersedes_a_pre_existing_user_edit(
+    client: TestClient, db_engine: Engine, session: Session
+) -> None:
+    """Edit-then-rematch: the re-match reconciles the stale edit, clearing ``is_edited``."""
+
+    user_id, _auth = register(client, "rematch-supersede@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    _add_candidate_product(session, source_ref="usda_fdc:NEW", calories_per_100g=120.0)
+
+    # A pre-existing manual value override marks the item edited.
+    session.add(
+        Correction(
+            user_id=uuid.UUID(user_id),
+            item_type=CandidateType.FOOD,
+            derived_food_item_id=item_id,
+            field="calories",
+            old_value=300.0,
+            new_value=250.0,
+            source=CorrectionSource.USER_EDIT,
+        )
+    )
+    session.commit()
+    assert item_read_model.item_is_edited(session, CandidateType.FOOD, item_id) is True
+
+    _capability(session, FakeListSource([])).re_resolve(
+        owner_id=uuid.UUID(user_id),
+        current_user=_user(session, user_id),
+        item_id=item_id,
+        source_ref="usda_fdc:NEW",
+    )
+
+    # The new source is the latest word: the stale edit is superseded, is_edited is false.
+    session.expire_all()
+    assert item_read_model.item_is_edited(session, CandidateType.FOOD, item_id) is False
+
+
+def test_user_edit_after_re_match_marks_item_edited_again(
+    client: TestClient, db_engine: Engine
+) -> None:
+    """A genuine edit *after* a re-match still counts — re-match is not a permanent latch."""
+
+    user_id, auth = register(client, "rematch-then-edit@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    factory = create_session_factory(db_engine)
+    with factory() as s:
+        _add_candidate_product(s, source_ref="usda_fdc:NEW", calories_per_100g=120.0)
+
+    re_resolve = client.post(
+        _re_resolve_url(user_id, item_id),
+        headers={"Authorization": auth},
+        json={"source_ref": "usda_fdc:NEW"},
+    )
+    assert re_resolve.status_code == 200
+    assert re_resolve.json()["is_edited"] is False
+
+    edit = client.patch(
+        f"/api/users/{user_id}/derived-items/food/{item_id}",
+        headers={"Authorization": auth},
+        json={"field": "calories", "value": 250.0},
+    )
+    assert edit.status_code == 200
+    assert edit.json()["is_edited"] is True
+
+
 def test_re_resolve_is_deterministic(
     client: TestClient, db_engine: Engine, session: Session
 ) -> None:
@@ -452,6 +547,33 @@ def test_re_resolve_api_happy_path(client: TestClient, db_engine: Engine) -> Non
     # FTY-092 read-model reports the NEW source through the existing item DTO.
     assert body["source"]["ref"] == "usda_fdc:NEW"
     assert body["source"]["source_type"] == "trusted_nutrition_database"
+
+
+def test_re_resolve_api_clears_a_pre_existing_edit(client: TestClient, db_engine: Engine) -> None:
+    """End-to-end: edit an item (is_edited true), re-match it, and is_edited reads false."""
+
+    user_id, auth = register(client, "rematch-api-edit@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    factory = create_session_factory(db_engine)
+    with factory() as s:
+        _add_candidate_product(s, source_ref="usda_fdc:NEW", calories_per_100g=120.0)
+
+    edit = client.patch(
+        f"/api/users/{user_id}/derived-items/food/{item_id}",
+        headers={"Authorization": auth},
+        json={"field": "calories", "value": 250.0},
+    )
+    assert edit.status_code == 200
+    assert edit.json()["is_edited"] is True
+
+    resp = client.post(
+        _re_resolve_url(user_id, item_id),
+        headers={"Authorization": auth},
+        json={"source_ref": "usda_fdc:NEW"},
+    )
+    assert resp.status_code == 200
+    # The contract guarantee: a re-matched item honestly reads un-edited, even after an edit.
+    assert resp.json()["is_edited"] is False
 
 
 def test_re_resolve_api_rejects_client_supplied_facts(

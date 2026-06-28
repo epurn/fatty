@@ -22,10 +22,13 @@ of that one capability:
   computed values.
 
 A re-match is a **fresh source-backed estimate, not a manual override**: the item is
-**not** marked ``user_edited`` and **no** ``user_edit`` correction row is written
-(the deliberate divergence from the FTY-051 "captured once" rule, which governs
-value overrides). The item keeps its ``id``, ``log_event_id``, name slot, and
-timeline position; only its source, numbers, and snapshot change.
+**not** marked ``user_edited`` and **no** ``user_edit`` correction row is written (the
+deliberate divergence from the FTY-051 "captured once" rule, which governs value
+overrides). It instead appends an immutable ``re_match`` audit row that records the
+re-match and **supersedes** any pre-existing ``user_edit`` — so an edited-then-rematched
+item honestly reads ``is_edited == false`` again (the new source carries the truth, not
+the stale override). The item keeps its ``id``, ``log_event_id``, name slot, and timeline
+position; only its source, numbers, and snapshot change.
 
 Security posture (rated **high**): egress flows only through the existing hardened
 source clients during the *listing* step; re-resolve performs no fetch at all. Both
@@ -45,12 +48,13 @@ from typing import Final, Protocol, runtime_checkable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.enums import DerivedItemStatus
+from app.enums import CandidateType, CorrectionSource, DerivedItemStatus
 from app.estimator.fdc import FDC_SOURCE, FDC_SOURCE_TYPE, ProductFacts
 from app.estimator.food_serving import NutritionFacts, resolve_grams, scale_facts
 from app.estimator.off import OFF_SOURCE, OFF_SOURCE_TYPE
 from app.estimator.official_step import MODEL_PRIOR_SOURCE, MODEL_PRIOR_SOURCE_TYPE
 from app.estimator.search import OFFICIAL_SOURCE, OFFICIAL_SOURCE_TYPE, sanitize_query
+from app.models.corrections import Correction
 from app.models.derived import DerivedFoodItem
 from app.models.food_sources import EvidenceSource, Product
 from app.models.identity import User
@@ -282,9 +286,11 @@ class ReMatchCapability:
         mutates), recomputes calories/macros at the item's *current* portion, rewrites
         the item's ``evidence_sources`` provenance to the new source, and re-snapshots
         the ``*_estimated`` originals to the new computed values. The item is **not**
-        marked ``user_edited`` and no ``user_edit`` correction is written. Issues no
-        network egress. Raises :class:`ReMatchNeedsClarification` when the new source
-        cannot cost the current quantity (never a fabricated number).
+        marked ``user_edited`` and no ``user_edit`` correction is written; instead a
+        ``re_match`` audit row is appended that supersedes any prior ``user_edit`` (so the
+        item's ``is_edited`` returns to ``false``). Issues no network egress. Raises
+        :class:`ReMatchNeedsClarification` when the new source cannot cost the current
+        quantity (never a fabricated number).
         """
 
         self._authorize(owner_id, current_user)
@@ -311,6 +317,7 @@ class ReMatchCapability:
         )
         scaled = scale_facts(facts, grams)
 
+        prior_calories = item.calories
         item.status = DerivedItemStatus.RESOLVED
         item.grams = scaled.grams
         item.calories = scaled.calories
@@ -326,6 +333,7 @@ class ReMatchCapability:
         item.fat_g_estimated = scaled.fat_g
 
         self._rewrite_evidence(item, product)
+        self._record_re_match(item, old_calories=prior_calories, new_calories=scaled.calories)
 
         self.session.commit()
         self.session.refresh(item)
@@ -411,6 +419,33 @@ class ReMatchCapability:
         evidence.carbs_per_100g = product.carbs_per_100g
         evidence.fat_per_100g = product.fat_per_100g
         evidence.assumptions = None
+
+    def _record_re_match(
+        self, item: DerivedFoodItem, *, old_calories: float | None, new_calories: float
+    ) -> None:
+        """Append the immutable ``re_match`` audit row that reconciles a prior edit.
+
+        A re-match is **not** a value override, so this row is tagged
+        :attr:`~app.enums.CorrectionSource.RE_MATCH`, never ``user_edit`` — the item is
+        still not ``user_edited``. Its purpose is twofold: it records the re-match in the
+        append-only audit trail (the calories change to the new source), and it
+        **supersedes** any prior ``user_edit`` so the FTY-092 ``is_edited`` read returns
+        to ``false`` (only an edit *after* this row counts). The marker is keyed on
+        ``calories``, the item's headline value; the full new numbers live on the item and
+        the rewritten ``evidence_sources`` snapshot.
+        """
+
+        self.session.add(
+            Correction(
+                user_id=item.user_id,
+                item_type=CandidateType.FOOD,
+                derived_food_item_id=item.id,
+                field="calories",
+                old_value=old_calories,
+                new_value=new_calories,
+                source=CorrectionSource.RE_MATCH,
+            )
+        )
 
     @staticmethod
     def _authorize(owner_id: uuid.UUID, current_user: User) -> None:
