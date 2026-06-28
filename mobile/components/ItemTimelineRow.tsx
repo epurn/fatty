@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { DerivedItem } from "@/api/derivedItems";
-import { SourceIcon } from "@/components/SourceIcon";
+import { ProvenanceIcon } from "@/components/ui";
 import { useTheme, spacing, typeScale, radius } from "@/theme";
 
 function formatKcal(n: number | null): string {
@@ -57,8 +57,8 @@ export function ItemTimelineRow({
       accessibilityLabel={a11yLabel}
       accessibilityHint={needsClarification ? "Tap to add the missing detail" : "Tap to view details"}
     >
-      {/* Source icon — always on */}
-      <SourceIcon source={source} is_edited={is_edited} />
+      {/* Provenance icon — always on */}
+      <ProvenanceIcon source={source} is_edited={is_edited} />
 
       {/* Name */}
       <Text
