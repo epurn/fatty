@@ -36,7 +36,7 @@ import {
   type WeightEntryDTO,
 } from "@/api/weightEntries";
 import {
-  getDailySummary as getDailySummaryApi,
+  getDailySummaryRange as getDailySummaryRangeApi,
   type DailySummaryDTO,
   type DailySummarySession,
 } from "@/api/dailySummary";
@@ -87,7 +87,7 @@ interface TrendsScreenProps {
   /** Injectable for tests. */
   listWeightEntries?: typeof listWeightEntriesApi;
   /** Injectable for tests. */
-  getDailySummary?: typeof getDailySummaryApi;
+  getDailySummaryRange?: typeof getDailySummaryRangeApi;
   /** Injectable for tests. */
   createWeightEntry?: typeof createWeightEntryApi;
   /** Injectable for tests. */
@@ -107,7 +107,7 @@ export function TrendsScreen({
   unitsPreference = "metric",
   now = new Date(),
   listWeightEntries = listWeightEntriesApi,
-  getDailySummary = getDailySummaryApi,
+  getDailySummaryRange = getDailySummaryRangeApi,
   createWeightEntry = createWeightEntryApi,
   store,
   notifications,
@@ -196,20 +196,23 @@ export function TrendsScreen({
       userId: apiSession.userId,
     };
 
-    Promise.all(
-      allDates.map((day) =>
-        getDailySummary(sessionForDaily, day).catch(() => null),
-      ),
-    ).then((results) => {
-      if (!active) return;
-      setRawSummaries(results);
-      setAdherencePhase("ready");
-    });
+    // One range read for the whole window — never one request per day.
+    getDailySummaryRange(sessionForDaily, from, to)
+      .then((results) => {
+        if (!active) return;
+        setRawSummaries(results);
+        setAdherencePhase("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setRawSummaries([]);
+        setAdherencePhase("ready");
+      });
 
     return () => {
       active = false;
     };
-  }, [apiSession, getDailySummary, allDates, adherenceReload]);
+  }, [apiSession, getDailySummaryRange, from, to, adherenceReload]);
 
   const adherence: AdherenceSummary = useMemo(
     () => computeAdherence(rawSummaries, allDates),

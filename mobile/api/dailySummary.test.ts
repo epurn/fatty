@@ -1,6 +1,7 @@
 import {
   DailySummaryApiError,
   getDailySummary,
+  getDailySummaryRange,
   type DailySummaryDTO,
   type DailySummarySession,
 } from "./dailySummary";
@@ -120,5 +121,41 @@ describe("getDailySummary", () => {
       expect(message).not.toContain("120");
       expect(message).not.toContain("350");
     }
+  });
+});
+
+describe("getDailySummaryRange", () => {
+  it("GETs the /range path with from/to query params and returns the list", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(okResponse([DTO]));
+
+    const result = await getDailySummaryRange(
+      SESSION,
+      "2026-05-28",
+      "2026-06-27",
+      fetchMock,
+    );
+
+    expect(result).toEqual([DTO]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "https://api.example.test/api/users/11111111-1111-1111-1111-111111111111/daily-summary/range?from=2026-05-28&to=2026-06-27",
+    );
+    expect(init.method).toBe("GET");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+  });
+
+  it("fires exactly one request for a whole range (no per-day fan-out)", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(okResponse([DTO]));
+
+    await getDailySummaryRange(SESSION, "2026-01-01", "2026-06-27", fetchMock);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a non-2xx status to a DailySummaryApiError", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(errorResponse(422));
+    await expect(
+      getDailySummaryRange(SESSION, "2026-06-27", "2026-05-28", fetchMock),
+    ).rejects.toMatchObject({ name: "DailySummaryApiError", status: 422 });
   });
 });

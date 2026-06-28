@@ -61,6 +61,32 @@ Authorization: Bearer <token>
   Defaults to the current day in that timezone when omitted. A malformed `day`
   is rejected as `422`.
 
+### HTTP request — range read (FTY-101)
+
+```
+GET /api/users/{user_id}/daily-summary/range?from=YYYY-MM-DD&to=YYYY-MM-DD
+Authorization: Bearer <token>
+```
+
+The range read returns one daily-summary DTO **per calendar day** in
+`[from, to]` inclusive, so a consumer that needs an adherence/history series
+(FTY-101 Trends) issues **one** request rather than one request per day. It is
+the canonical read for multi-day series; clients must not fan out per-day
+single-day calls to build a range. (This is a totals series — the per-item
+day-listing read described under "Per-item provenance" is a separate, items-level
+read path.)
+
+- `from`, `to` — required `YYYY-MM-DD` calendar days in the user's profile
+  timezone. `from` must be on or before `to`, and the span may not exceed
+  **366 days**; either violation (or a malformed date) is rejected as `422`.
+- Every day in the inclusive range is present in the response, oldest-first.
+  Days with no finalized data carry zeroed `intake`/`exercise` and a `null`
+  `target` — exactly the DTO the single-day endpoint returns for that day. The
+  response is the JSON array `[DailySummaryDTO, …]`.
+- Same finalized-state filtering, day/timezone resolution, no-target
+  representation, rounding, authorization, and privacy rules as the single-day
+  read — it is the same read-model computed over a window, not a new shape.
+
 ## Outputs
 
 ### Daily-summary DTO

@@ -116,7 +116,7 @@ describe("TrendsScreen — no session", () => {
       <TrendsScreen
         session={null}
         listWeightEntries={list}
-        getDailySummary={jest.fn()}
+        getDailySummaryRange={jest.fn()}
         now={NOW}
       />,
     );
@@ -136,7 +136,7 @@ describe("TrendsScreen — weight entries", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -152,7 +152,7 @@ describe("TrendsScreen — weight entries", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -171,7 +171,7 @@ describe("TrendsScreen — weight entries", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -189,7 +189,7 @@ describe("TrendsScreen — weight entries", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -208,7 +208,7 @@ describe("TrendsScreen — range selector", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -229,14 +229,14 @@ describe("TrendsScreen — range selector", () => {
 
   it("switching range re-fetches both weight entries and adherence data", async () => {
     const list = jest.fn().mockResolvedValue([]);
-    const getSum = jest.fn().mockResolvedValue(
+    const getSum = jest.fn().mockResolvedValue([
       makeSummary("2026-06-27", 2000, 2000),
-    );
+    ]);
     const tree = mount(
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={getSum}
+        getDailySummaryRange={getSum}
         now={NOW}
       />,
     );
@@ -260,7 +260,7 @@ describe("TrendsScreen — range selector", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -294,7 +294,7 @@ describe("TrendsScreen — headline delta", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue(entries)}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
         unitsPreference="metric"
       />,
@@ -312,14 +312,14 @@ describe("TrendsScreen — headline delta", () => {
 
 describe("TrendsScreen — adherence summary", () => {
   it("shows avg kcal and days-on-target when summaries are available", async () => {
-    const getSum = jest.fn().mockResolvedValue(
+    const getSum = jest.fn().mockResolvedValue([
       makeSummary("2026-06-27", 2000, 2000),
-    );
+    ]);
     const tree = mount(
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={getSum}
+        getDailySummaryRange={getSum}
         now={NOW}
       />,
     );
@@ -329,14 +329,14 @@ describe("TrendsScreen — adherence summary", () => {
   });
 
   it("null-target days appear in the adherence strip with a distinct 'no target' label", async () => {
-    const getSum = jest.fn().mockResolvedValue(
+    const getSum = jest.fn().mockResolvedValue([
       makeSummary("2026-06-27", 0, null),
-    );
+    ]);
     const tree = mount(
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={getSum}
+        getDailySummaryRange={getSum}
         now={NOW}
       />,
     );
@@ -358,14 +358,14 @@ describe("TrendsScreen — adherence summary", () => {
 describe("TrendsScreen — past-day drilldown", () => {
   it("calls onDayPress with the tapped date when a strip cell is pressed", async () => {
     const onDayPress = jest.fn();
-    const getSum = jest.fn().mockResolvedValue(
+    const getSum = jest.fn().mockResolvedValue([
       makeSummary("2026-06-27", 2000, 2000),
-    );
+    ]);
     const tree = mount(
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={getSum}
+        getDailySummaryRange={getSum}
         now={NOW}
         onDayPress={onDayPress}
       />,
@@ -400,7 +400,7 @@ describe("TrendsScreen — log weight sheet", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -428,7 +428,7 @@ describe("TrendsScreen — log weight sheet", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         createWeightEntry={createEntry}
         store={store}
         notifications={notifications}
@@ -473,7 +473,7 @@ describe("TrendsScreen — log weight sheet", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         createWeightEntry={createEntry}
         now={NOW}
         unitsPreference="metric"
@@ -518,7 +518,7 @@ describe("TrendsScreen — cadence picker", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
@@ -543,7 +543,7 @@ describe("TrendsScreen — cadence picker", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         store={store}
         notifications={notifications}
         now={NOW}
@@ -571,7 +571,7 @@ describe("TrendsScreen — cadence picker", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={list}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         store={store}
         notifications={notifications}
         now={NOW}
@@ -604,7 +604,7 @@ describe("TrendsScreen — accessibility", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue(entries)}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
         unitsPreference="metric"
       />,
@@ -627,7 +627,7 @@ describe("TrendsScreen — accessibility", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue(entries)}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
         unitsPreference="metric"
       />,
@@ -644,14 +644,14 @@ describe("TrendsScreen — accessibility", () => {
   });
 
   it("adherence strip cells never rely on color alone (each has an accessibilityLabel)", async () => {
-    const getSum = jest.fn().mockResolvedValue(
+    const getSum = jest.fn().mockResolvedValue([
       makeSummary("2026-06-27", 2000, 2000),
-    );
+    ]);
     const tree = mount(
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={getSum}
+        getDailySummaryRange={getSum}
         now={NOW}
       />,
     );
@@ -672,7 +672,7 @@ describe("TrendsScreen — accessibility", () => {
       <TrendsScreen
         session={SESSION}
         listWeightEntries={jest.fn().mockResolvedValue([])}
-        getDailySummary={jest.fn().mockResolvedValue(makeSummary("2026-06-27", 0, null))}
+        getDailySummaryRange={jest.fn().mockResolvedValue([makeSummary("2026-06-27", 0, null)])}
         now={NOW}
       />,
     );
