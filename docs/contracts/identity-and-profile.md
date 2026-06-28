@@ -132,9 +132,14 @@ part of any response.
 | `404` | Accessing a profile the caller does not own (fail closed). |
 | `409` | Registering an email that already has a local identity. |
 | `422` | Malformed body, invalid email, weak password, out-of-range metric, unknown timezone, unknown field. |
+| `429` | Too many requests. `/api/auth/login` enforces a per-source-IP limit and a per-account (hashed email) limit; `/api/auth/register` enforces a per-source-IP limit. The response carries a `Retry-After` header (integer seconds until the window resets). Thresholds are configurable via `FATTY_RATE_LIMIT_*` env vars (FTY-118). |
 
 Login returns the same `401` for an unknown email and a wrong password so the
 API does not reveal whether an account exists.
+
+The `429` short-circuit fires **before** the credential check (login) and before
+the insert (register), so a throttled request pays no password-hash or DB cost
+and the equalized-timing posture is preserved.
 
 ## Examples
 

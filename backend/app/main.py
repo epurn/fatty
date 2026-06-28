@@ -28,6 +28,7 @@ from app.routers import (
     targets,
     weight_entries,
 )
+from app.security.rate_limit import build_redis_limiter
 from app.settings import Settings, load_settings
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,11 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     # inject a double backed by a scripted provider so the upload endpoint needs
     # no live model.
     app.state.label_processor = synchronous_label_processor
+    # The rate limiter is a swappable seam (FTY-118): production uses a
+    # Redis-backed fixed-window counter shared across worker processes; tests
+    # inject an in-memory double so the auth endpoint tests need no live Redis.
+    # The seam can be replaced after create_app() returns (e.g. in conftest.py).
+    app.state.rate_limiter = build_redis_limiter(settings.redis_url)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(profile.router)
