@@ -22,6 +22,11 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
+#: Physical maximum energy density of any real food (pure fat ≈ 9 kcal/g × 100 g).
+#: Set conservatively just above the true maximum (~884 kcal/100g for pure oils) so
+#: every legitimate food passes and a kJ-mislabelled value (~4× higher) is caught.
+_MAX_ENERGY_KCAL_PER_100G: Final[float] = 900.0
+
 #: Grams per recognised **mass** unit. The canonical storage unit is the gram.
 _MASS_UNIT_GRAMS: Final[dict[str, float]] = {
     "mg": 0.001,
@@ -230,3 +235,30 @@ def per_serving_to_per_100g(per_serving: NutritionFacts, serving_g: float) -> Nu
         carbs_g=per_serving.carbs_g * factor,
         fat_g=per_serving.fat_g * factor,
     )
+
+
+def nutrition_facts_plausible(facts: NutritionFacts) -> bool:
+    """Return ``True`` if per-100g ``facts`` are within physical bounds.
+
+    A fact sheet that fails this gate is not an offerable match — it maps to a
+    clean ``None`` (non-match) so resolution falls through rather than committing
+    an impossible calorie total. Rules:
+
+    - ``calories <= 0``: not a costable match (zero or negative energy is the
+      typical shape of an empty/garbage nutrient row).
+    - ``calories > 900``: above the physical maximum energy density of food
+      (pure fat ≈ 9 kcal/g; pure cooking oils sit at ~884 kcal/100g). A kJ value
+      mislabelled as kcal lands ~4× higher and is caught by this ceiling.
+    - Any negative macro (``protein_g``, ``carbs_g``, ``fat_g`` ``< 0``): physically
+      impossible. Zero macros are explicitly valid (a pure-fat food has zero
+      protein and zero carbs).
+
+    The gate lives in the canonical per-100g space so the same threshold governs
+    every source uniformly, including OFF per-serving values converted to per-100g.
+    """
+
+    if facts.calories <= 0 or facts.calories > _MAX_ENERGY_KCAL_PER_100G:
+        return False
+    if facts.protein_g < 0 or facts.carbs_g < 0 or facts.fat_g < 0:
+        return False
+    return True
