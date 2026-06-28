@@ -209,6 +209,30 @@ export async function drainOutbox(opts: {
   };
 }
 
+/**
+ * Fold a drain pass back into the live queue without losing an entry captured
+ * *while the drain was in flight*.
+ *
+ * A drain works from a snapshot of the queue taken when it started. If the user
+ * captures a new offline entry during that drain, replacing the queue with the
+ * drain's result would silently drop the just-captured entry — the exact data
+ * loss this feature exists to prevent. So instead of overwriting, keep every
+ * entry that was *not* part of the drained snapshot (identified by its stable
+ * idempotency key) and append the drain's resolved view of the snapshot.
+ *
+ * `snapshotKeys` are the keys the drain started from; `drained` is its current
+ * view of just those entries (accepted ones already removed). Newly-captured
+ * entries — present in `latest` but absent from `snapshotKeys` — are preserved.
+ */
+export function mergeDrainResult(
+  latest: readonly OutboxEntry[],
+  snapshotKeys: ReadonlySet<string>,
+  drained: readonly OutboxEntry[],
+): readonly OutboxEntry[] {
+  const extras = latest.filter((e) => !snapshotKeys.has(e.idempotencyKey));
+  return [...drained, ...extras];
+}
+
 /** Count entries the user is still waiting to send (queued or in flight). */
 export function pendingCount(entries: readonly OutboxEntry[]): number {
   return entries.filter(

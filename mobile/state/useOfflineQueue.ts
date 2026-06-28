@@ -26,6 +26,7 @@ import type { LogEventDTO } from "@/api/logEvents";
 import {
   drainOutbox,
   hasQueuedWork,
+  mergeDrainResult,
   normalizeLoaded,
   type OutboxEntry,
   type OutboxStore,
@@ -77,13 +78,13 @@ export function useOfflineQueue(args: {
   const mountedRef = useRef(true);
   const draining = useRef(false);
   const prevUserId = useRef<string | null>(null);
-  // Latest values mirrored into refs (updated in an effect, never during render)
-  // so the drain/enqueue callbacks read fresh values without re-creating.
+  // `entriesRef` is the *synchronous* authority for the queue: the drain and
+  // enqueue callbacks read and write it directly between awaits, so neither can
+  // act on a stale snapshot. `entries` state only mirrors it for rendering.
   const entriesRef = useRef(entries);
   const submitRef = useRef(submit);
   const onAcceptedRef = useRef(onAccepted);
   useEffect(() => {
-    entriesRef.current = entries;
     submitRef.current = submit;
     onAcceptedRef.current = onAccepted;
   });
@@ -95,11 +96,38 @@ export function useOfflineQueue(args: {
     };
   }, []);
 
+  // Update the queue everywhere at once: the synchronous ref (read by the
+  // callbacks) and the rendered state. Keeping these in lockstep is what stops a
+  // capture made during an in-flight drain from being lost to a stale snapshot.
+  const commitEntries = useCallback((next: readonly OutboxEntry[]) => {
+    entriesRef.current = next;
+    if (mountedRef.current) setEntries(next);
+  }, []);
+
+  // Serialize on-device writes through a single chain so a drain's save and a
+  // concurrent enqueue's save can't interleave and clobber each other on disk.
+  // Each link persists the *current* ref, so the last write always reflects the
+  // fully-merged queue (drain outcome + anything enqueued meanwhile).
+  const saveChain = useRef<Promise<unknown>>(Promise.resolve());
+  const persist = useCallback(
+    (id: string) => {
+      const run = saveChain.current
+        .catch(() => {})
+        .then(() => store.save(id, entriesRef.current));
+      saveChain.current = run;
+      return run;
+    },
+    [store],
+  );
+
   const drain = useCallback(async () => {
     if (draining.current || !userId) return;
     const current = entriesRef.current;
     if (!hasQueuedWork(current)) return;
 
+    // Keys the drain starts from. Anything enqueued mid-drain has a fresh key
+    // outside this set and is merged back in rather than overwritten.
+    const snapshotKeys = new Set(current.map((e) => e.idempotencyKey));
     draining.current = true;
     if (mountedRef.current) setReachability("reconnecting");
     try {
@@ -107,23 +135,31 @@ export function useOfflineQueue(args: {
         entries: current,
         submit: (entry) => submitRef.current(entry),
         onChange: (live) => {
-          if (mountedRef.current) setEntries(live);
+          commitEntries(mergeDrainResult(entriesRef.current, snapshotKeys, live));
         },
       });
+      const merged = mergeDrainResult(
+        entriesRef.current,
+        snapshotKeys,
+        result.entries,
+      );
+      entriesRef.current = merged;
       // Always persist the durable outcome, even if the screen has unmounted —
       // the queue must survive. UI updates are gated on still being mounted.
-      await store.save(userId, result.entries);
+      await persist(userId);
+      // Read the live ref (not `merged`) for the final UI sync: a capture may
+      // have landed during the await, and the ref already accounts for it.
       if (mountedRef.current) {
         for (const { entry, event } of result.accepted) {
           onAcceptedRef.current(entry, event);
         }
-        setEntries(result.entries);
-        setReachability(hasQueuedWork(result.entries) ? "offline" : "online");
+        setEntries(entriesRef.current);
+        setReachability(hasQueuedWork(entriesRef.current) ? "offline" : "online");
       }
     } finally {
       draining.current = false;
     }
-  }, [userId, store]);
+  }, [userId, commitEntries, persist]);
 
   // Load the queue when the signed-in user changes, and purge the *previous*
   // user's on-device queue on a real user transition (sign-out / switch). Keyed
@@ -139,7 +175,7 @@ export function useOfflineQueue(args: {
       // entries stay in component state — leaking their raw captures into the
       // new user's session (drained under the new session). The privacy
       // guarantee this slice codifies requires clearing memory, not just disk.
-      setEntries(EMPTY);
+      commitEntries(EMPTY);
       setReachability("online");
     }
     prevUserId.current = userId;
@@ -152,26 +188,25 @@ export function useOfflineQueue(args: {
       // Nothing stored ⇒ the defaults (empty / online) already hold; skip the
       // state update so a mount with no backlog causes no extra render.
       if (normalized.length === 0) return;
-      setEntries(normalized);
+      commitEntries(normalized);
       setReachability(hasQueuedWork(normalized) ? "offline" : "online");
     });
     return () => {
       active = false;
     };
-  }, [userId, store]);
+  }, [userId, store, commitEntries]);
 
   const enqueue = useCallback(
     async (entry: OutboxEntry) => {
       if (!userId) return;
-      const next = [...entriesRef.current, entry];
-      if (mountedRef.current) {
-        setEntries(next);
-        setReachability("offline");
-      }
+      // Append against the synchronous ref so a capture made during an in-flight
+      // drain is never lost — the drain merges it back rather than overwriting.
+      commitEntries([...entriesRef.current, entry]);
+      if (mountedRef.current) setReachability("offline");
       // Persist immediately — this is the durability guarantee (survives restart).
-      await store.save(userId, next);
+      await persist(userId);
     },
-    [userId, store],
+    [userId, commitEntries, persist],
   );
 
   const drainNow = useCallback(() => {

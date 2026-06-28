@@ -3,6 +3,7 @@ import {
   drainOutbox,
   generateIdempotencyKey,
   hasQueuedWork,
+  mergeDrainResult,
   normalizeLoaded,
   pendingCount,
   type OutboxEntry,
@@ -204,5 +205,43 @@ describe("queue counters", () => {
     expect(hasQueuedWork([entry({ syncState: "queued" })])).toBe(true);
     expect(hasQueuedWork([entry({ syncState: "failed" })])).toBe(false);
     expect(hasQueuedWork([])).toBe(false);
+  });
+});
+
+describe("mergeDrainResult", () => {
+  it("preserves an entry captured during the drain (key outside the snapshot)", () => {
+    const snapshotKeys = new Set(["a"]);
+    // The drain accepted `a` (so it's gone), but `b` was enqueued meanwhile.
+    const latest = [
+      entry({ idempotencyKey: "a", syncState: "submitting" }),
+      entry({ idempotencyKey: "b", syncState: "queued" }),
+    ];
+    const drained: readonly OutboxEntry[] = [];
+    expect(
+      mergeDrainResult(latest, snapshotKeys, drained).map(
+        (e) => e.idempotencyKey,
+      ),
+    ).toEqual(["b"]);
+  });
+
+  it("keeps the drain's resolved view of the snapshot and appends new entries", () => {
+    const snapshotKeys = new Set(["a"]);
+    const latest = [
+      entry({ idempotencyKey: "a", syncState: "submitting" }),
+      entry({ idempotencyKey: "b", syncState: "queued" }),
+    ];
+    // The drain marked `a` failed (kept for visibility).
+    const drained = [entry({ idempotencyKey: "a", syncState: "failed" })];
+    const merged = mergeDrainResult(latest, snapshotKeys, drained);
+    expect(merged.map((e) => [e.idempotencyKey, e.syncState])).toEqual([
+      ["a", "failed"],
+      ["b", "queued"],
+    ]);
+  });
+
+  it("is a no-op shape when nothing was captured during the drain", () => {
+    const snapshotKeys = new Set(["a"]);
+    const drained = [entry({ idempotencyKey: "a", syncState: "queued" })];
+    expect(mergeDrainResult(drained, snapshotKeys, drained)).toEqual(drained);
   });
 });

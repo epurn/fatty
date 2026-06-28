@@ -19,6 +19,17 @@ function entry(overrides: Partial<OutboxEntry> = {}): OutboxEntry {
   };
 }
 
+function serverEvent(id: string): LogEventDTO {
+  return {
+    id,
+    user_id: USER_A,
+    raw_text: "two eggs",
+    status: "pending",
+    created_at: "2026-06-28T08:00:00Z",
+    updated_at: "2026-06-28T08:00:00Z",
+  };
+}
+
 /** A controllable in-memory store, recording its calls. */
 function makeStore(initial: Record<string, readonly OutboxEntry[]> = {}) {
   const data = new Map<string, readonly OutboxEntry[]>(Object.entries(initial));
@@ -166,5 +177,51 @@ describe("useOfflineQueue user transitions", () => {
 
     harness.unmount();
     expect(cleared).not.toContain(USER_A);
+  });
+});
+
+describe("useOfflineQueue enqueue/drain race", () => {
+  it("keeps an entry captured during an in-flight drain (memory and store)", async () => {
+    // A submit that blocks until we resolve it, so the drain stays in flight
+    // while a new capture is enqueued underneath it.
+    let resolveSubmit!: (event: LogEventDTO) => void;
+    const submit = jest.fn(
+      () =>
+        new Promise<LogEventDTO>((resolve) => {
+          resolveSubmit = resolve;
+        }),
+    );
+    const { store, data } = makeStore({ [USER_A]: [entry()] });
+    const harness = renderQueue({ initialUserId: USER_A, store, submit });
+    await flush();
+
+    // Drain starts and blocks on the in-flight submit for key-a.
+    act(() => harness.current.drainNow());
+    await flush();
+    expect(submit).toHaveBeenCalledTimes(1);
+
+    // A fresh capture lands while that drain is still in flight.
+    await act(async () => {
+      await harness.current.enqueue(
+        entry({ idempotencyKey: "key-b", rawText: "an apple" }),
+      );
+    });
+
+    // The in-flight submit now resolves — key-a is accepted and leaves the queue.
+    await act(async () => {
+      resolveSubmit(serverEvent("key-a"));
+    });
+    await flush();
+
+    // The drain snapshotted the queue before key-b existed; the fix merges
+    // key-b back in rather than overwriting, so it survives in memory AND on
+    // disk. Without it, key-b's raw capture would be silently dropped — the
+    // exact data loss this feature exists to prevent.
+    expect(harness.current.entries.map((e) => e.idempotencyKey)).toEqual([
+      "key-b",
+    ]);
+    expect((data.get(USER_A) ?? []).map((e) => e.idempotencyKey)).toEqual([
+      "key-b",
+    ]);
   });
 });
