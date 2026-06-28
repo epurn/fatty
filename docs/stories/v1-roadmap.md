@@ -229,7 +229,7 @@ serialize back-to-back rather than simultaneously.
 | FTY-109 | merged | infra | [Compose network / ops hardening](FTY-109-compose-network-hardening.md) | Postgres/Redis host ports no longer published (unauth Redis off the LAN); worker gains a healthcheck; long-lived services get a restart policy. Redis auth is a noted follow-up. |
 | FTY-110 | merged | estimator | [Evidence clients fail closed](FTY-110-evidence-client-fail-closed.md) | A malformed FDC/OFF payload maps to a clean non-retryable ResponseError → non-match/clarify (not a worker-crashing `ValidationError`); over-long fields truncate; `FdcClient.lookup`/`list_matches` dedup so both inherit the guard. |
 | FTY-111 | merged | backend-core | [Fail closed at profile + registration boundary](FTY-111-backend-input-boundary-fail-closed.md) | Explicit-null on a non-nullable profile field → 422 (was 500); the register check-then-insert race returns 409 on the unique-index loser (was 500). No migration, no contract change. |
-| FTY-112 | ready_with_notes | backend-core | [Baseline security headers + prod docs gating](FTY-112-security-headers-prod-docs.md) | Responses carry nosniff / frame / referrer headers; interactive `/docs`/`/redoc`/`/openapi.json` disabled when `environment == production`. Serializes on backend-core after FTY-111. |
+| FTY-112 | merged | backend-core | [Baseline security headers + prod docs gating](FTY-112-security-headers-prod-docs.md) | Responses carry nosniff / frame / referrer headers; interactive `/docs`/`/redoc`/`/openapi.json` disabled when `environment == production`. Serializes on backend-core after FTY-111. |
 
 **Second wave (queued 2026-06-28 — depth in the two lanes with the most audit findings).**
 These serialize *within* their lane (estimator runs them after FTY-110; backend-core
@@ -259,6 +259,27 @@ M+ (estimator + profile schema + migration), so it stays out of the quick-win sw
 With FTY-119/120 queued, the cross-lane audit's quick-win backlog is fully decomposed into
 stories (FTY-108–120); FTY-108/109 already merged, the rest are `ready`/`ready_with_notes` and
 draining through the steward in parallel with the mobile-core queue.
+
+## Queue-Health Tranche (2026-06-28)
+
+Four stories from a queue-health investigation (2026-06-28). Two independent
+**dependency-hygiene** items for the Expo SDK 56 managed mobile app — four
+dependabot PRs (react patch, rn-minor, jest 30, eslint 10) each failed mobile CI
+trying to bump an SDK-governed dep in isolation and were closed. FTY-121 stops the
+doomed PRs (governance); FTY-122 is the supported path that moves the whole pinned
+toolchain together (mobile-core) — independent of FTY-121, either order. Plus the
+fix for the blocking reviewer concern on PR #71 (FTY-101): the Trends adherence
+strip fans out one `getDailySummary` per day (~180/render) over a missing
+read-model. Split per the single-boundary rule into a backend range endpoint +
+contract (FTY-123, the contract change is the one big rock) and its dependent
+mobile consumer (FTY-124, joined by that contract).
+
+| ID | State | Lane | Story | Acceptance |
+| --- | --- | --- | --- | --- |
+| FTY-121 | ready | governance | [Dependabot ignores SDK-governed mobile deps](FTY-121-dependabot-expo-sdk-ignores.md) | The `/mobile` npm entry ignores SDK-pinned packages (expo/react/react-native/jest/jest-expo/@types/jest, all updates) and major bumps of eslint/eslint-plugin-*/@typescript-eslint/*, so Dependabot stops opening doomed PRs; config-only, no dep bumps. |
+| FTY-122 | ready | mobile-core | [Upgrade the Expo SDK](FTY-122-expo-sdk-upgrade.md) | SDK 56 → latest stable via `expo install --fix` moves react/react-native/jest-expo/jest/eslint toolchain as one coherent set; clean lockfile (no ERESOLVE), lint + jest + typecheck green, app boots; the only path the closed dependabot bumps land. |
+| FTY-123 | ready | backend-core | [Daily-summary range read endpoint](FTY-123-daily-summary-range-endpoint.md) | New `GET …/daily-summaries?start&end` returns a dense ascending array of the existing `DailySummaryDTO` (one per day) in one call; reuses FTY-071 per-day math; bounded span (422 over max/bad range); owner-scoped fail-closed 404; contract updated; no migration. |
+| FTY-124 | ready | mobile-core | [Trends adherence consumes the range read](FTY-124-mobile-trends-range-read.md) | Trends adherence strip fetches the range in one request via FTY-123 instead of N per-day calls (fixes PR #71's fan-out); adherence math + null-target exclusion unchanged. Dep FTY-123. |
 
 ## Story Promotion Rule
 
