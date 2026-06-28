@@ -20,7 +20,7 @@ from sqlalchemy.engine import Connection
 from alembic import context
 
 # Importing the models registers every table on Base.metadata for autogenerate.
-from app.db import Base
+from app.db import Base, _normalize_url
 from app.models import estimation as _estimation  # noqa: F401  (import for side effects)
 from app.models import identity as _identity  # noqa: F401  (import for side effects)
 from app.models import log_events as _log_events  # noqa: F401  (import for side effects)
@@ -33,9 +33,17 @@ target_metadata = Base.metadata
 
 
 def _resolve_url() -> str:
-    """Resolve the migration target URL from settings (``FATTY_DATABASE_URL``)."""
+    """Resolve the migration target URL from settings (``FATTY_DATABASE_URL``).
 
-    return load_settings().database_url
+    The URL is passed through :func:`app.db._normalize_url` so the migration path
+    selects the same psycopg v3 driver as the application runtime. Without this, a
+    bare ``postgresql://`` DSN (the shipped ``.env.example`` default) makes
+    SQLAlchemy default to the uninstalled psycopg2 dialect and ``alembic upgrade
+    head`` fails on first boot. Normalization is the single source of truth in
+    ``app.db`` and is idempotent for already-qualified and SQLite URLs.
+    """
+
+    return _normalize_url(load_settings().database_url)
 
 
 def _run(connection: Connection) -> None:
