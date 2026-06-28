@@ -227,8 +227,8 @@ serialize back-to-back rather than simultaneously.
 | --- | --- | --- | --- | --- |
 | FTY-108 | merged | governance | [Expand Dependabot to app deps](FTY-108-dependabot-app-dependencies.md) | Dependabot covers the backend `uv`/pip, mobile `npm`, and Docker base-image ecosystems (not just github-actions); config-only, no dep bumps in the PR. |
 | FTY-109 | merged | infra | [Compose network / ops hardening](FTY-109-compose-network-hardening.md) | Postgres/Redis host ports no longer published (unauth Redis off the LAN); worker gains a healthcheck; long-lived services get a restart policy. Redis auth is a noted follow-up. |
-| FTY-110 | ready_with_notes | estimator | [Evidence clients fail closed](FTY-110-evidence-client-fail-closed.md) | A malformed FDC/OFF payload maps to a clean non-retryable ResponseError → non-match/clarify (not a worker-crashing `ValidationError`); over-long fields truncate; `FdcClient.lookup`/`list_matches` dedup so both inherit the guard. |
-| FTY-111 | ready | backend-core | [Fail closed at profile + registration boundary](FTY-111-backend-input-boundary-fail-closed.md) | Explicit-null on a non-nullable profile field → 422 (was 500); the register check-then-insert race returns 409 on the unique-index loser (was 500). No migration, no contract change. |
+| FTY-110 | merged | estimator | [Evidence clients fail closed](FTY-110-evidence-client-fail-closed.md) | A malformed FDC/OFF payload maps to a clean non-retryable ResponseError → non-match/clarify (not a worker-crashing `ValidationError`); over-long fields truncate; `FdcClient.lookup`/`list_matches` dedup so both inherit the guard. |
+| FTY-111 | merged | backend-core | [Fail closed at profile + registration boundary](FTY-111-backend-input-boundary-fail-closed.md) | Explicit-null on a non-nullable profile field → 422 (was 500); the register check-then-insert race returns 409 on the unique-index loser (was 500). No migration, no contract change. |
 | FTY-112 | ready_with_notes | backend-core | [Baseline security headers + prod docs gating](FTY-112-security-headers-prod-docs.md) | Responses carry nosniff / frame / referrer headers; interactive `/docs`/`/redoc`/`/openapi.json` disabled when `environment == production`. Serializes on backend-core after FTY-111. |
 
 **Second wave (queued 2026-06-28 — depth in the two lanes with the most audit findings).**
@@ -244,11 +244,21 @@ after FTY-111/112), but the whole batch runs in parallel with the mobile-core qu
 | FTY-117 | ready | backend-core | [`/readyz` DB readiness probe](FTY-117-readyz-db-readiness-probe.md) | New `/readyz` runs `SELECT 1` → 200 ready / 503 when the DB is down (no 500, no detail leak); `/healthz` liveness unchanged; queue check deferred. |
 | FTY-118 | ready_with_notes | backend-core | [Auth endpoint rate-limit](FTY-118-auth-endpoint-rate-limit.md) | `/login` + `/register` per-IP (and per-account) Redis-backed throttle → 429 + Retry-After; tuned not to break the mobile retry/reconnect path. |
 
-**Still-unqueued runners-up (lowest urgency):** bound weight-entry `effective_date` against typos
-(backend-core, S); the timezone-window / active-target / `FdcClient` pure-refactor dedups
-(backend-core + estimator, S each — drift-reduction, no behaviour change). The known
-**activity-level gap** (calculator fixed at 1.2 sedentary vs the Profile design) is confirmed
-real but M+ (estimator + profile schema + migration) — leave as already-planned, not a quick win.
+**Third wave (queued 2026-06-28 — the remaining backend-core runners-up; empties the
+audit's quick-win backlog).** Both backend-core, serialize behind the earlier backend-core stories.
+
+| ID | State | Lane | Story | Acceptance |
+| --- | --- | --- | --- | --- |
+| FTY-119 | ready_with_notes | backend-core | [Weight-entry date bound](FTY-119-weight-entry-date-bound.md) | A future-dated (and absurdly-old) `effective_date` is rejected 422 instead of stored and skewing the FTY-074 trend chart; tz-aware "today" with a small slack. |
+| FTY-120 | ready | backend-core | [Consolidate day-window + active-target helpers](FTY-120-consolidate-day-window-target-helpers.md) | Pure refactor: one `timeutils` home for the day/tz-window helpers (3 copies → 1) and one active-target resolver; existing service tests pass unchanged. **Preserves an intentional divergence** the author found between the two active-target copies — not a blind merge. |
+
+**Not a quick win (left as already-planned):** the **activity-level gap** — the calculator is
+fixed at 1.2 sedentary while the Profile design assumes an activity level — is confirmed real but
+M+ (estimator + profile schema + migration), so it stays out of the quick-win sweep.
+
+With FTY-119/120 queued, the cross-lane audit's quick-win backlog is fully decomposed into
+stories (FTY-108–120); FTY-108/109 already merged, the rest are `ready`/`ready_with_notes` and
+draining through the steward in parallel with the mobile-core queue.
 
 ## Story Promotion Rule
 
