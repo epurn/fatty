@@ -115,9 +115,12 @@ is skipped, as is one whose mapped per-100g facts fail the **plausibility bound*
 (FTY-115): `calories` must be `> 0` and `≤ 900` kcal/100g (just above pure oil at
 ~884; a kJ value mislabelled as kcal lands ~4× higher and is rejected) and every
 macro must be `≥ 0` (zero is valid — a pure-fat food has zero protein/carbs). The same
-bound governs **every** source in the canonical per-100g space, applied *after* any
-per-serving → per-100g conversion; an implausible row is a non-match (`None`), so
-resolution falls through rather than committing an impossible calorie total. Default
+bound governs **both trusted-database lookups** — FDC here and OFF (below) — in the
+canonical per-100g space, applied *after* any per-serving → per-100g conversion; an
+implausible row is a non-match (`None`), so resolution falls through rather than
+committing an impossible calorie total. (The official-source and label-extraction paths
+produce per-100g facts too but are out of FTY-115's scope; they remain gated only by the
+looser `MAX_ENERGY_KCAL` abuse bound.) Default
 serving grams come from `servingSize` only when `servingSizeUnit` is `g` (or `ml`,
 treated 1 ml ≈ 1 g); otherwise unknown.
 
