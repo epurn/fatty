@@ -43,10 +43,12 @@ function summary(
   date: string,
   intake: number,
   targetCalories: number | null,
+  hasIntake = true,
 ): DailySummaryDTO {
   return {
     date,
     intake: { calories: intake, protein_g: 80, carbs_g: 150, fat_g: 40 },
+    has_intake: hasIntake,
     target: targetCalories !== null ? makeTarget(targetCalories) : null,
     exercise: { active_calories: 0 },
   };
@@ -262,6 +264,20 @@ describe("dayAdherenceState", () => {
       "off-target",
     );
   });
+
+  it("returns 'no-data' for an unlogged day (has_intake false) even with a target", () => {
+    // The range path returns unlogged days with a zeroed intake and has_intake
+    // false — they must not be classed as an off-target miss.
+    expect(dayAdherenceState(summary("2026-06-01", 0, 2000, false))).toBe(
+      "no-data",
+    );
+  });
+
+  it("a genuine 0-kcal logged day (has_intake true) is still classified against target", () => {
+    expect(dayAdherenceState(summary("2026-06-01", 0, 2000, true))).toBe(
+      "off-target",
+    );
+  });
 });
 
 describe("computeAdherence", () => {
@@ -311,6 +327,44 @@ describe("computeAdherence", () => {
     ];
     const result = computeAdherence(summaries, allDates);
     expect(result.avgCalories).toBe(2000); // (1800+2200)/2
+  });
+
+  it("excludes unlogged days from the average — a zeroed day from the range path is not a real 0-kcal day", () => {
+    // The range endpoint returns EVERY calendar day, with intake zeroed and
+    // has_intake false for days the user never logged (no literal null appears in
+    // production). Counting those as real 0-kcal days drags the average down.
+    const summaries = [
+      summary("2026-06-01", 1800, 2000), // logged
+      summary("2026-06-02", 0, 2000, false), // unlogged — zeroed by the range path
+      summary("2026-06-03", 2200, 2000), // logged
+    ];
+    const result = computeAdherence(summaries, allDates);
+    expect(result.days[1]!.state).toBe("no-data");
+    expect(result.days[1]!.intakeCalories).toBeNull();
+    expect(result.avgCalories).toBe(2000); // (1800+2200)/2 — zeroed day excluded
+  });
+
+  it("unlogged-but-targeted days are excluded from the on-target denominator, not counted as misses", () => {
+    const summaries = [
+      summary("2026-06-01", 2000, 2000), // on-target
+      summary("2026-06-02", 0, 2000, false), // unlogged, has a target
+      summary("2026-06-03", 0, 2000, false), // unlogged, has a target
+    ];
+    const result = computeAdherence(summaries, allDates);
+    expect(result.daysOnTarget).toBe(1);
+    expect(result.daysWithTarget).toBe(1); // unlogged-but-targeted days excluded
+  });
+
+  it("a genuine 0-kcal logged day (has_intake true) IS counted in the average and denominator", () => {
+    const summaries = [
+      summary("2026-06-01", 0, 2000, true), // logged a real 0 (e.g. water-only day)
+      summary("2026-06-02", 0, 2000, true),
+      summary("2026-06-03", 0, 2000, true),
+    ];
+    const result = computeAdherence(summaries, allDates);
+    expect(result.avgCalories).toBe(0); // genuine zeros count
+    expect(result.daysWithTarget).toBe(3);
+    expect(result.daysOnTarget).toBe(0); // 0 vs 2000 → all off-target
   });
 
   it("returns null avgCalories when no summaries", () => {

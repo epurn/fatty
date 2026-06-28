@@ -47,6 +47,14 @@ export interface DailySummaryDTO {
     readonly carbs_g: number;
     readonly fat_g: number;
   };
+  /**
+   * True iff the day has at least one finalized food item. `intake` is zeroed
+   * both for an unlogged day and for a genuinely zero-kcal logged day, so the
+   * zero alone can't tell them apart — this flag does. The Trends adherence
+   * series excludes `has_intake: false` days from its logged-intake average and
+   * on/off-target denominator instead of counting them as real 0-kcal days.
+   */
+  readonly has_intake: boolean;
   readonly target: TargetReadModel | null;
   readonly exercise: {
     readonly active_calories: number;

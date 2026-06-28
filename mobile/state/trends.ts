@@ -188,9 +188,13 @@ export interface AdherenceSummary {
 
 /**
  * Classify one day's adherence from its daily-summary DTO.
- * A null target → 'no-target' (excluded from the denominator, not a miss).
+ * An unlogged day (`has_intake` false) → 'no-data': its zeroed intake is not a
+ * real 0-kcal reading, so it must not land in the average or the on/off-target
+ * denominator. A null target → 'no-target' (excluded from the denominator, not a
+ * miss).
  */
 export function dayAdherenceState(summary: DailySummaryDTO): AdherenceDayState {
+  if (!summary.has_intake) return "no-data";
   if (summary.target === null) return "no-target";
   const target = summary.target.calories.effective;
   const intake = summary.intake.calories;
@@ -203,7 +207,11 @@ export function dayAdherenceState(summary: DailySummaryDTO): AdherenceDayState {
  * Summarise adherence for a date range.
  * `summaries` entries may be null (fetch failed for that day).
  * `allDates` is the full ordered list of expected dates (oldest-first).
- * Days absent from summaries or null are rendered as 'no-data'.
+ * Days are rendered as 'no-data' — and excluded from the average and the
+ * on/off-target denominator — when they are absent/null from `summaries` (fetch
+ * gap) OR present but unlogged (`has_intake` false); the range endpoint returns
+ * every calendar day, so in production the unlogged case is the real one. Only a
+ * genuinely logged day (which may carry a true 0-kcal intake) counts.
  */
 export function computeAdherence(
   summaries: readonly (DailySummaryDTO | null)[],
@@ -216,7 +224,8 @@ export function computeAdherence(
 
   const days: AdherenceDay[] = allDates.map((date) => {
     const s = byDate.get(date);
-    if (!s) {
+    const state = s ? dayAdherenceState(s) : ("no-data" as const);
+    if (!s || state === "no-data") {
       return {
         date,
         state: "no-data" as const,
@@ -226,7 +235,7 @@ export function computeAdherence(
     }
     return {
       date,
-      state: dayAdherenceState(s),
+      state,
       intakeCalories: s.intake.calories,
       targetCalories: s.target?.calories.effective ?? null,
     };

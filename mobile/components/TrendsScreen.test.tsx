@@ -49,10 +49,12 @@ function makeSummary(
   date: string,
   intake: number,
   targetCal: number | null,
+  hasIntake = true,
 ): DailySummaryDTO {
   return {
     date,
     intake: { calories: intake, protein_g: 80, carbs_g: 150, fat_g: 40 },
+    has_intake: hasIntake,
     target: targetCal !== null ? makeTarget(targetCal) : null,
     exercise: { active_calories: 0 },
   };

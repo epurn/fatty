@@ -91,11 +91,17 @@ def get_daily_summary(
         day = datetime.now(tz).date()
     start_utc, end_utc = _day_bounds_utc(day, tz)
 
-    intake = _aggregate_intake(session, owner_id, start_utc, end_utc)
+    intake, has_intake = _aggregate_intake(session, owner_id, start_utc, end_utc)
     exercise = _aggregate_exercise(session, owner_id, start_utc, end_utc)
     target = _resolve_target(session, owner_id, day)
 
-    return DailySummaryDTO(date=day, intake=intake, target=target, exercise=exercise)
+    return DailySummaryDTO(
+        date=day,
+        intake=intake,
+        has_intake=has_intake,
+        target=target,
+        exercise=exercise,
+    )
 
 
 def get_daily_summaries(
@@ -112,7 +118,9 @@ def get_daily_summaries(
     per-day round trips — the client renders an adherence series from a single
     request. Every calendar day in the inclusive range is represented, with
     zeroed intake/burn and a ``None`` target for days that have no finalized data,
-    so the shape matches the single-day endpoint exactly.
+    so the shape matches the single-day endpoint exactly — including the
+    ``has_intake`` flag, which is ``True`` only for days that have a finalized
+    food item, so a consumer can tell an unlogged day from a genuine 0-kcal day.
 
     ``start`` must be on or before ``end`` and the span may not exceed
     :data:`MAX_RANGE_DAYS` days (:class:`DailySummaryRangeTooLarge` otherwise).
@@ -140,10 +148,13 @@ def get_daily_summaries(
     summaries: list[DailySummaryDTO] = []
     day = start
     while day <= end:
+        # A day is present in ``intake_by_day`` only when it bucketed at least one
+        # finalized food item, so membership is exactly the ``has_intake`` signal.
         summaries.append(
             DailySummaryDTO(
                 date=day,
                 intake=intake_by_day.get(day, _intake_dto([])),
+                has_intake=day in intake_by_day,
                 target=targets_by_day.get(day),
                 exercise=exercise_by_day.get(day, _exercise_dto([])),
             )
@@ -264,8 +275,13 @@ def _aggregate_intake(
     owner_id: uuid.UUID,
     start_utc: datetime,
     end_utc: datetime,
-) -> DailySummaryIntakeDTO:
-    """Sum calories and macros from finalized food items on the day."""
+) -> tuple[DailySummaryIntakeDTO, bool]:
+    """Sum calories and macros from finalized food items on the day.
+
+    Returns the intake DTO and ``has_intake`` — ``True`` when at least one
+    finalized food item was found, so a zeroed-but-logged day is distinguishable
+    from an unlogged day (both serialize ``intake`` as zero).
+    """
 
     food_items = list(
         session.scalars(
@@ -274,7 +290,7 @@ def _aggregate_intake(
             .where(*_food_window_conditions(owner_id, start_utc, end_utc))
         )
     )
-    return _intake_dto(food_items)
+    return _intake_dto(food_items), len(food_items) > 0
 
 
 def _aggregate_exercise(
