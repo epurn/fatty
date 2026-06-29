@@ -20,7 +20,7 @@
  * Camera permission is handled by CameraCapture (FTY-063), reused without changes.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -38,6 +38,8 @@ import {
   LabelUploadTooLargeError,
   uploadLabelImage as uploadLabelImageApi,
 } from "@/api/labelCapture";
+import { useTheme } from "@/theme/ThemeContext";
+import type { ColorPalette } from "@/theme/colors";
 import {
   CameraCapture,
   type CameraCaptureProps,
@@ -96,6 +98,8 @@ export function LabelCaptureScreen({
   takePhoto,
   permissionsHook,
 }: LabelCaptureScreenProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const cameraRef = useRef<CameraView>(null);
   const [phase, setPhase] = useState<Phase>("camera");
   const [photo, setPhoto] = useState<CapturedPhoto | null>(null);
@@ -173,6 +177,7 @@ export function LabelCaptureScreen({
               <ShutterControls
                 onShutter={() => void handleShutter()}
                 error={phase === "error" ? uploadError : null}
+                colors={colors}
               />
             )}
 
@@ -183,6 +188,7 @@ export function LabelCaptureScreen({
                 onToggleSave={setSavePhoto}
                 onRetake={handleRetake}
                 onUpload={() => void handleUpload()}
+                colors={colors}
               />
             )}
 
@@ -206,10 +212,13 @@ export function LabelCaptureScreen({
 function ShutterControls({
   onShutter,
   error,
+  colors,
 }: {
   onShutter: () => void;
   error: string | null;
+  colors: ColorPalette;
 }) {
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.shutterControls}>
       {error ? (
@@ -240,13 +249,16 @@ function PreviewControls({
   onToggleSave,
   onRetake,
   onUpload,
+  colors,
 }: {
   photoUri: string;
   savePhoto: boolean;
   onToggleSave: (value: boolean) => void;
   onRetake: () => void;
   onUpload: () => void;
+  colors: ColorPalette;
 }) {
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.previewControls}>
       <Image
@@ -262,7 +274,7 @@ function PreviewControls({
           accessibilityHint="When on, the photo is saved as an attachment. Default is off — the photo is discarded after the label is read."
           value={savePhoto}
           onValueChange={onToggleSave}
-          trackColor={{ false: "#636366", true: "#0A84FF" }}
+          trackColor={{ false: colors.textSecondary, true: colors.accent }}
           thumbColor="#FFFFFF"
         />
       </View>
@@ -289,113 +301,130 @@ function PreviewControls({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingBottom: 48,
-  },
-  shutterControls: {
-    alignItems: "center",
-    gap: 16,
-  },
-  errorText: {
-    color: "#FF453A",
-    fontSize: 15,
-    textAlign: "center",
-    paddingHorizontal: 24,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    borderRadius: 8,
-    paddingVertical: 8,
-    maxWidth: 320,
-  },
-  shutterButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shutterInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 2,
-    borderColor: "#C7C7CC",
-  },
-  previewControls: {
-    width: "100%",
-    paddingHorizontal: 24,
-    gap: 16,
-    alignItems: "center",
-  },
-  previewImage: {
-    width: "100%",
-    height: 240,
-    borderRadius: 12,
-    backgroundColor: "#1C1C1E",
-  },
-  saveRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    width: "100%",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    minHeight: 44,
-  },
-  saveLabel: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  previewActions: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-  },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-    minHeight: 44,
-  },
-  secondaryButtonLabel: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  primaryButton: {
-    flex: 2,
-    backgroundColor: "#0A84FF",
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-    minHeight: 44,
-  },
-  primaryButtonLabel: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  uploadingContainer: {
-    alignItems: "center",
-    gap: 12,
-  },
-  uploadingText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-});
+function makeStyles(colors: ColorPalette) {
+  return StyleSheet.create({
+    overlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      justifyContent: "flex-end",
+      alignItems: "center",
+      paddingBottom: 48,
+    },
+    shutterControls: {
+      alignItems: "center",
+      gap: 16,
+    },
+    errorText: {
+      color: colors.coral,
+      fontSize: 15,
+      textAlign: "center",
+      paddingHorizontal: 24,
+      backgroundColor: "rgba(0,0,0,0.7)",
+      borderRadius: 8,
+      paddingVertical: 8,
+      maxWidth: 320,
+    },
+    shutterButton: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: "rgba(255,255,255,0.9)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    shutterInner: {
+      // Inner disc of the shutter button over the live camera feed — fixed
+      // white to match the translucent-white ring (`shutterButton`), not a
+      // themed token (the camera feed is not a themed surface).
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 2,
+      borderColor: "rgba(255,255,255,0.6)",
+    },
+    previewControls: {
+      width: "100%",
+      paddingHorizontal: 24,
+      gap: 16,
+      alignItems: "center",
+    },
+    previewImage: {
+      // Placeholder behind the captured label image in the camera UI — fixed
+      // dark so the container stays a dark placeholder in both light and dark
+      // (a themed token like `colors.text`/`colors.surface` would flip to
+      // near-white in dark mode).
+      width: "100%",
+      height: 240,
+      borderRadius: 12,
+      backgroundColor: "#1C1C1E",
+    },
+    saveRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      width: "100%",
+      backgroundColor: "rgba(0,0,0,0.6)",
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      minHeight: 44,
+    },
+    saveLabel: {
+      // Sits in a dark scrim over the live camera feed, not on a themed
+      // surface — fixed white for contrast in both light and dark (matches
+      // CameraCapture's overlay text).
+      color: "#FFFFFF",
+      fontSize: 16,
+      fontWeight: "500",
+    },
+    previewActions: {
+      flexDirection: "row",
+      gap: 12,
+      width: "100%",
+    },
+    secondaryButton: {
+      flex: 1,
+      backgroundColor: "rgba(255,255,255,0.2)",
+      borderRadius: 10,
+      paddingVertical: 14,
+      alignItems: "center",
+      minHeight: 44,
+    },
+    secondaryButtonLabel: {
+      // Translucent-white button over the camera feed — fixed white, not a
+      // themed token (the camera feed is not a themed surface).
+      color: "#FFFFFF",
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    primaryButton: {
+      flex: 2,
+      backgroundColor: colors.accent,
+      borderRadius: 10,
+      paddingVertical: 14,
+      alignItems: "center",
+      minHeight: 44,
+    },
+    primaryButtonLabel: {
+      // The only overlay label on the amber accent fill (`primaryButton`), so
+      // accentForeground is the correct on-accent token here.
+      color: colors.accentForeground,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    uploadingContainer: {
+      alignItems: "center",
+      gap: 12,
+    },
+    uploadingText: {
+      // Rendered directly on the live camera feed — fixed white for contrast.
+      color: "#FFFFFF",
+      fontSize: 16,
+      fontWeight: "500",
+    },
+  });
+}
