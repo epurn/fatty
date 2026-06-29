@@ -33,6 +33,7 @@ from app.models.targets import DailyTarget, Goal
 from app.schemas.targets import TargetOverrideRequest
 from app.services.targets import (
     GoalForbidden,
+    IncompleteProfileError,
     OverrideOutOfBand,
     TargetNotFound,
     _resolve_active_target_row,
@@ -361,6 +362,33 @@ def test_override_past_horizon_fails_closed(session: Session) -> None:
         reset_target_override(session, user.id, user, None, for_date=past_horizon)
 
 
+def test_override_materialise_with_incomplete_profile_raises(session: Session) -> None:
+    """If materialising a later-day row needs the calculator but the profile has gone
+    incomplete, the write surfaces ``IncompleteProfileError`` (→ ``409``), not a 500."""
+
+    user = _make_user_with_profile(session)
+    _seed_target(session, user)  # complete profile lets goal-creation-day row compute
+    # The profile-update DTO allows nulling body metrics after goal creation.
+    profile = session.scalars(select(UserProfile).where(UserProfile.user_id == user.id)).one()
+    profile.height_m = None
+    session.commit()
+
+    later = date(2026, 1, 6)  # in horizon, no stored row → must materialise
+    assert _resolve_active_target_row(session, user.id, later) is None
+
+    with pytest.raises(IncompleteProfileError):
+        set_target_override(
+            session,
+            user.id,
+            user,
+            TargetOverrideRequest(calorie_target_kcal=1800),
+            for_date=later,
+        )
+    session.rollback()
+    with pytest.raises(IncompleteProfileError):
+        reset_target_override(session, user.id, user, None, for_date=later)
+
+
 # ---------------------------------------------------------------------------
 # Out-of-band validation: reject, do not clamp
 # ---------------------------------------------------------------------------
@@ -593,6 +621,53 @@ def test_api_set_override_on_later_in_horizon_day_materialises(
         "derived": 1678,
         "source": "user",
     }
+
+
+def test_api_override_materialise_with_incomplete_profile_returns_409(
+    client: TestClient, db_engine: Engine
+) -> None:
+    """Over HTTP, an in-horizon override that must materialise but whose profile has
+    gone incomplete returns ``409`` (complete the profile first), never an uncaught 500."""
+
+    user_id, auth = _register(client, "target-incomplete@example.com")
+    # Complete the profile so the goal-creation-day row computes, seed the target,
+    # then null a body metric the calculator needs (the profile update DTO allows it).
+    factory = create_session_factory(db_engine)
+    with factory() as session:
+        profile = session.scalars(
+            select(UserProfile).where(UserProfile.user_id == uuid.UUID(user_id))
+        ).one()
+        profile.height_m = 1.80
+        profile.weight_kg = 80.0
+        profile.birth_year = 1996
+        profile.metabolic_formula = MetabolicFormula.MIFFLIN_ST_JEOR_PLUS_5
+        session.commit()
+    _seed_api_target(db_engine, user_id)
+    with factory() as session:
+        profile = session.scalars(
+            select(UserProfile).where(UserProfile.user_id == uuid.UUID(user_id))
+        ).one()
+        profile.height_m = None
+        session.commit()
+
+    headers = {"Authorization": auth}
+    later = date(2026, 2, 1)  # in horizon, no stored row → must materialise
+
+    resp = client.put(
+        f"/api/users/{user_id}/target/override",
+        headers=headers,
+        params={"day": str(later)},
+        json={"calorie_target_kcal": 1800},
+    )
+    assert resp.status_code == 409
+
+    resp = client.post(
+        f"/api/users/{user_id}/target/override/reset",
+        headers=headers,
+        params={"day": str(later)},
+        json={},
+    )
+    assert resp.status_code == 409
 
 
 def test_api_out_of_band_override_returns_422(client: TestClient, db_engine: Engine) -> None:

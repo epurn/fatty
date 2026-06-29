@@ -248,8 +248,12 @@ every read. Resolution therefore differs between reads and writes:
   it. Thus override-on-a-later-day **succeeds** for every in-horizon day. The write
   fails closed with `404` (`TargetNotFound`) only when there is **no active goal
   covering the day** (no goal, or the day is outside `[start_date, target_date]`).
-  Cross-user access is the same `404` — no existence oracle. The read carry-forward
-  above is unchanged.
+  Cross-user access is the same `404` — no existence oracle. Because materialisation
+  runs the calculator, a profile that has since gone incomplete (height/birth year
+  nulled after goal creation, which the profile update DTO allows, or the formula on
+  the unspecified default) raises `IncompleteProfileError` → `409` (complete the
+  profile first), the same mapping goal creation uses — never an uncaught `500`. The
+  read carry-forward above is unchanged.
 
 ### Set / reset semantics
 
@@ -347,6 +351,7 @@ longer 404s — the write materialises the row on demand; see Target resolution.
 | Profile missing height/birth year, or formula on the unspecified default | `IncompleteProfileError`. |
 | Cross-user, unowned, or missing goal | `GoalForbidden` (fail closed). |
 | Override set/reset with **no active goal covering the day** (no goal, or day outside `[start_date, target_date]`) | `TargetNotFound` → `404` (fail closed, no oracle). An active goal with no stored row yet materialises the row and succeeds. |
+| Override set/reset has to **materialise** the day's row but the profile is incomplete (height/birth year nulled, or formula on the unspecified default) | `IncompleteProfileError` → `409` (complete the profile first), the same mapping goal creation uses. |
 | Raw **derived** target outside the safety band | Clamped to floor/ceiling, `clamped = true`. |
 | Manual **override** outside the safety band (or a macro outside its bound) | Rejected `422`, nothing persisted (no clamp). |
 | Empty override request (no calorie or macro provided) | Rejected `422` at the boundary. |

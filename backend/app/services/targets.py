@@ -217,9 +217,11 @@ def set_target_override(
     owner's profile timezone. When no exact-date row exists yet but the owner has an
     active goal covering the day, the row is **materialised on demand** (via
     :func:`compute_daily_target`, carrying any in-force override forward) so an
-    override succeeds on any in-horizon day, not just goal-creation day. Each provided
-    value is validated against its documented safety band and an out-of-band value
-    raises :class:`OverrideOutOfBand` (``422``) with nothing persisted. On success the
+    override succeeds on any in-horizon day, not just goal-creation day. Because that
+    materialisation runs the calculator, a profile that has gone incomplete raises
+    :class:`IncompleteProfileError` (``409``). Each provided value is validated against
+    its documented safety band and an out-of-band value raises
+    :class:`OverrideOutOfBand` (``422``) with nothing persisted. On success the
     targeted override columns are set, ``override_set_at`` is stamped, and the
     updated row is returned with the overridden targets reporting ``source: user``.
     """
@@ -259,7 +261,9 @@ def reset_target_override(
     owner's profile timezone. When no exact-date row exists yet but the owner has an
     active goal covering the day, the row is **materialised on demand** (via
     :func:`compute_daily_target`, carrying any in-force override forward), then the
-    reset is applied to it — so a reset succeeds on any in-horizon day. ``targets``
+    reset is applied to it — so a reset succeeds on any in-horizon day. Because that
+    materialisation runs the calculator, a profile that has gone incomplete raises
+    :class:`IncompleteProfileError` (``409``). ``targets``
     names which overrides to clear; ``None`` or an empty list clears **all** in-force
     overrides. Resetting a target that is already derived is a no-op. After the last
     in-force override is cleared, ``override_set_at`` is cleared too. The cleared
