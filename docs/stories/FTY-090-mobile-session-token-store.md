@@ -46,6 +46,13 @@ mobile-core (+ security-privacy)
 - FTY-013 (mobile app skeleton: the Expo/expo-router shell this plumbing lives in)
 - FTY-021 (profile capture: the existing `useSession()`/`ProfileSession` consumer
   whose seam this completes — not changed beyond making `useSession()` real)
+
+## Related
+
+<!-- Cross-references only — NOT scheduling dependencies. Kept out of the
+     Dependencies section so the steward's metadata_dependencies parser does not
+     read these IDs as blockers (which deadlocked the FTY-090–107 tranche). -->
+
 - **Not** dependent on FTY-097 (design system): this is non-visual plumbing — no
   screen, component, or token-styling. The screens that consume this surface
   (FTY-091) carry the design-system dependency, not this story.

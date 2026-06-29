@@ -67,6 +67,13 @@ backend-core (with a `contracts` big rock: one new public endpoint contract).
   `compute_daily_target` service, the `goals` / `daily_targets` schema, and the
   `GoalCreateRequest` / `GoalDTO` / `DailyTargetDTO` DTOs). All reused; **no new
   table, no migration** in this story.
+
+## Related
+
+<!-- Reverse reference only — NOT a scheduling dependency (this story BLOCKS
+     FTY-103, it does not depend on it). Kept out of Dependencies so the parser
+     does not read it as a blocker. -->
+
 - **Blocks FTY-103** (mobile goal-led onboarding): FTY-103 step 1 (goal + pace)
   and step 3 (target reveal) consume this endpoint. FTY-103 must not be authored
   until this merges.

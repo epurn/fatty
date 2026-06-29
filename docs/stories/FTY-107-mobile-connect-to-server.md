@@ -46,9 +46,15 @@ mobile-core (+ security-privacy)
   already a declared dependency)
 - FTY-013 (mobile app skeleton: the expo-router shell this adds a route to)
 
-Note: **FTY-091 (sign-in / create-account) depends on this story** — it reads the
-persisted base URL exposed here and hands off to this connect screen when no
-server is connected. Build this first.
+## Related
+
+<!-- Reverse reference only — NOT a scheduling dependency (FTY-091 depends on
+     THIS story, not the other way around). Kept out of Dependencies so the
+     parser does not read it as a blocker. -->
+
+- **FTY-091 (sign-in / create-account) depends on this story** — it reads the
+  persisted base URL exposed here and hands off to this connect screen when no
+  server is connected. Build this first.
 
 ## Outcome
 

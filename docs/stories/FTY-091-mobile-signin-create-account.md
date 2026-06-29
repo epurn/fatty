@@ -55,6 +55,12 @@ mobile-core (+ security-privacy)
 - FTY-013 (mobile app skeleton: the expo-router shell this adds a route to)
 - FTY-021 (profile capture: the `<SignInRequired/>` dead-end this replaces with a
   real entry point; also hosts the sign-out control)
+
+## Related
+
+<!-- Cross-reference only — NOT a scheduling dependency. Kept out of Dependencies
+     so the steward's parser does not read it as a blocker. -->
+
 - FTY-103 (onboarding) — **soft seam, not a hard blocker.** Per the design, a
   successful first-run auth hands off to onboarding before Today. This story
   routes to onboarding when it exists and the user's goal/profile is unset, and
