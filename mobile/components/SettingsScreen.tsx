@@ -287,6 +287,17 @@ export function SettingsScreen({
     setEditingGoal(true);
   }, [goalDirection, goalPace]);
 
+  // `faster` is a loss-only pace preset; `gain` rejects it (422). Clamp it back
+  // to `steady` when leaving `loss` so the editor can never submit the
+  // structurally-invalid {direction: 'gain', pace: 'faster'} the backend
+  // guarantees to reject. See docs/contracts/goals-target-reveal.md.
+  const handleDirectionChange = useCallback((next: GoalDirection) => {
+    setEditDirection(next);
+    if (next !== 'loss') {
+      setEditPace((prev) => (prev === 'faster' ? 'steady' : prev));
+    }
+  }, []);
+
   const handleSaveGoal = useCallback(async () => {
     if (!session) return;
     setGoalSaving(true);
@@ -658,7 +669,7 @@ export function SettingsScreen({
               { value: 'gain', label: 'Gain' },
             ]}
             selected={editDirection}
-            onSelect={setEditDirection}
+            onSelect={handleDirectionChange}
             accessibilityLabel="Goal direction"
             colors={colors}
           />

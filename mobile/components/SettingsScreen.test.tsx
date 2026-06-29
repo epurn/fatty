@@ -862,6 +862,65 @@ describe("Goal row honesty", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tests: goal editor never submits an invalid direction/pace combination
+// `faster` is a loss-only pace preset; the backend rejects {gain, faster} (422).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Goal editor pace validity", () => {
+  it("clamps a previously-chosen 'faster' pace when switching to 'gain'", async () => {
+    const createGoalFn = jest.fn().mockResolvedValue(GOAL_TARGET_RESPONSE);
+    const getTargetFn = jest
+      .fn()
+      .mockResolvedValueOnce(DERIVED_TARGET)
+      .mockResolvedValueOnce(UPDATED_TARGET_AFTER_GOAL);
+
+    const tree = renderSettings({ createGoalFn, getTargetFn });
+    await act(async () => {});
+
+    // Open the goal editor (defaults to the loss direction).
+    await act(async () => {
+      press(tree, "Goal: Active");
+    });
+    // Pick the loss-only 'faster' pace, then switch the direction to gain.
+    await act(async () => {
+      press(tree, "Faster");
+    });
+    await act(async () => {
+      press(tree, "Gain");
+    });
+    await act(async () => {
+      press(tree, "Save goal");
+    });
+    await act(async () => {});
+
+    // The submitted payload must be structurally valid: gain never carries
+    // 'faster'. It is clamped back to 'steady' on the direction change.
+    expect(createGoalFn).toHaveBeenCalledTimes(1);
+    expect(createGoalFn.mock.calls[0][1]).toEqual({
+      direction: "gain",
+      pace: "steady",
+    });
+  });
+
+  it("does not offer the 'Faster' pace for a gain goal", async () => {
+    const tree = renderSettings({
+      getTargetFn: jest.fn().mockResolvedValue(DERIVED_TARGET),
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      press(tree, "Goal: Active");
+    });
+    await act(async () => {
+      press(tree, "Gain");
+    });
+
+    // The loss-only preset must not be a reachable control under gain.
+    expect(() => findPressable(tree, "Faster")).toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests: in-place save/reset error feedback (no sensitive context)
 // ─────────────────────────────────────────────────────────────────────────────
 
