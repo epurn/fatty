@@ -35,6 +35,7 @@ from app.estimator.pipeline import (
     StepError,
     StepFailed,
 )
+from app.estimator.plausibility import check_candidate
 from app.llm.base import Provider
 from app.llm.errors import (
     LLMConfigurationError,
@@ -177,6 +178,16 @@ class ParseStep:
         if not result.items:
             raise StepFailed("no_candidates")
 
+        # Deterministic plausibility gate (FTY-156): check each candidate's
+        # quantity/unit against physical sanity ranges before trusting the parse.
+        # A single implausible candidate makes the whole event's total
+        # untrustworthy, so route the event to clarification with a targeted
+        # question naming the offending item.
+        implausible = _first_implausible(result.items)
+        if implausible is not None:
+            context.clarification_questions = [implausible]
+            raise NeedsClarification("implausible_candidate")
+
         for item in result.items:
             draft = _to_draft(item)
             if item.type is CandidateType.FOOD:
@@ -213,3 +224,18 @@ def _failure_reason(result: ParseResult) -> str:
     """
 
     return "unparseable_input"
+
+
+def _first_implausible(items: list[ParsedCandidate]) -> str | None:
+    """Return a clarification question for the first implausible candidate, or None.
+
+    Checks each candidate in order; returns the targeted question from the first
+    failure so the user can correct the most prominent implausible entry first.
+    Returns ``None`` when all candidates are plausible.
+    """
+
+    for item in items:
+        result = check_candidate(item)
+        if not result.plausible:
+            return result.clarification_question
+    return None
