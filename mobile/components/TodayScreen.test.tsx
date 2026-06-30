@@ -6,6 +6,7 @@ import type { DailySummaryDTO } from "@/api/dailySummary";
 import type { DerivedFoodItemDTO } from "@/api/derivedItems";
 import { LogEventApiError, type LogEventDTO } from "@/api/logEvents";
 import type { SavedFoodDTO } from "@/api/savedFoods";
+import type { OutboxEntry, OutboxStore } from "@/state/outbox";
 import type { Session } from "@/state/session";
 
 // TodayScreen imports BarcodeScannerScreen which imports expo-camera native
@@ -16,6 +17,22 @@ import type { Session } from "@/state/session";
 let mockTriggerScan:
   | ((result: { data: string; type: string }) => void)
   | undefined;
+
+// TodayScreen now renders AppIcon (expo-symbols) for the gear button; stub the
+// native SymbolView so tests run without a native module.
+jest.mock("expo-symbols", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ReactNative = require("react-native");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ReactLib = require("react");
+  return {
+    SymbolView: ({ name, accessibilityLabel }: { name: string; accessibilityLabel?: string }) =>
+      ReactLib.createElement(ReactNative.View, {
+        testID: `sf-symbol-${String(name)}`,
+        accessibilityLabel,
+      }),
+  };
+});
 
 jest.mock("expo-camera", () => {
   // Use require() inside the factory — jest.mock() factories run before imports
@@ -65,6 +82,22 @@ function event(overrides: Partial<LogEventDTO>): LogEventDTO {
 // non-polling tests stay deterministic and never touch a navigation container.
 const INACTIVE = () => false;
 
+// Unmount every tree after each test so a background interval (e.g. the offline
+// outbox retry timer) can never fire into a later test and update an unmounted
+// component.
+const activeTrees: ReactTestRenderer[] = [];
+
+afterEach(() => {
+  for (const tree of activeTrees) {
+    try {
+      act(() => tree.unmount());
+    } catch {
+      // Already unmounted / torn down — ignore.
+    }
+  }
+  activeTrees.length = 0;
+});
+
 // SafeAreaProvider needs frame/insets metrics in a non-native test environment.
 function mount(element: React.ReactElement): ReactTestRenderer {
   let tree!: ReactTestRenderer;
@@ -80,6 +113,7 @@ function mount(element: React.ReactElement): ReactTestRenderer {
       </SafeAreaProvider>,
     );
   });
+  activeTrees.push(tree);
   return tree;
 }
 
@@ -114,6 +148,46 @@ function press(tree: ReactTestRenderer, label: string): void {
   act(() => {
     node.props.onPress();
   });
+}
+
+function inputValue(tree: ReactTestRenderer, label: string): string {
+  const node = tree.root.find(
+    (n) =>
+      n.props.accessibilityLabel === label &&
+      typeof n.props.onChangeText === "function",
+  );
+  return node.props.value as string;
+}
+
+/** A network-layer failure (server unreachable), distinct from an API error. */
+function networkError(): Error {
+  return new TypeError("Network request failed");
+}
+
+/** An in-memory OutboxStore for tests, with the backing data exposed. */
+function memoryStore(initial: Record<string, OutboxEntry[]> = {}): {
+  store: OutboxStore;
+  data: Map<string, OutboxEntry[]>;
+} {
+  const data = new Map<string, OutboxEntry[]>(
+    Object.entries(initial).map(([k, v]) => [k, [...v]]),
+  );
+  const store: OutboxStore = {
+    load: async (userId) => data.get(userId) ?? [],
+    save: async (userId, entries) => {
+      data.set(userId, [...entries]);
+    },
+    clear: async (userId) => {
+      data.delete(userId);
+    },
+  };
+  return { store, data };
+}
+
+/** A deterministic, monotonically-increasing idempotency-key generator. */
+function sequentialKeys(): () => string {
+  let n = 0;
+  return () => `key-${n++}`;
 }
 
 describe("TodayScreen", () => {
@@ -194,9 +268,11 @@ describe("TodayScreen", () => {
     press(tree, "Add entry");
 
     // Optimistic: the entry appears as pending before the create resolves.
+    // create carries the FTY-096 idempotency key minted by the submit machine.
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ userId: SESSION!.userId }),
       "greek yogurt",
+      expect.any(String),
     );
     expect(textContent(tree)).toContain("greek yogurt");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
@@ -307,6 +383,334 @@ describe("TodayScreen derived items", () => {
     // Pending events without items show a status placeholder (raw_text + status icon)
     expect(textContent(tree)).toContain("Cold brew");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+  });
+});
+
+// ─── Correction / detail sheet wiring (FTY-148) ──────────────────────────────
+
+/** Resolve the style object for a node, collapsing a Pressable style function. */
+function resolvedStyle(node: { props: { style?: unknown } }): Record<string, unknown> {
+  const raw =
+    typeof node.props.style === "function"
+      ? (node.props.style as (s: { pressed: boolean }) => unknown)({ pressed: false })
+      : node.props.style;
+  return Object.assign(
+    {},
+    ...([] as unknown[]).concat(raw).filter(Boolean) as Record<string, unknown>[],
+  );
+}
+
+describe("TodayScreen correction sheet wiring", () => {
+  it("opens the correction sheet for a tapped completed item; the sheet is not mounted until then", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([event({ id: "a", raw_text: "Greek yogurt", status: "completed" })]);
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        items={{ a: [foodItem()] }}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    // Dead until wired: the sheet (and its stepper) is not in the tree yet.
+    expect(hasA11yLabel(tree, "Increase amount")).toBe(false);
+
+    // Tapping the completed item row opens the sheet (mounted, reachable).
+    press(tree, "Greek yogurt, 150 kcal");
+    expect(hasA11yLabel(tree, "Increase amount")).toBe(true);
+    expect(hasA11yLabel(tree, "Decrease amount")).toBe(true);
+  });
+
+  it("opens the sheet for the specific item that was tapped", async () => {
+    const editItem = jest.fn().mockResolvedValue(foodItem({ id: "item-b" }));
+    const load = jest
+      .fn()
+      .mockResolvedValue([event({ id: "a", raw_text: "Two snacks", status: "completed" })]);
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        editItem={editItem}
+        items={{
+          a: [
+            foodItem({ id: "item-a", name: "Apple", calories: 95 }),
+            foodItem({ id: "item-b", name: "Banana", calories: 105 }),
+          ],
+        }}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    // Tap the second row, then exercise a lever; the edit targets that item's id.
+    press(tree, "Banana, 105 kcal");
+    await act(async () => {
+      press(tree, "Increase amount");
+    });
+
+    expect(editItem).toHaveBeenCalledTimes(1);
+    const [, itemType, itemId] = editItem.mock.calls[0];
+    expect(itemType).toBe("food");
+    expect(itemId).toBe("item-b");
+  });
+
+  it("drives the portion stepper end-to-end and reflects the recomputed item on close", async () => {
+    // The server recomputes calories for the new portion; the UI re-renders the
+    // returned values (never client math) and the timeline reflects them on close.
+    const editItem = jest
+      .fn()
+      .mockResolvedValue(foodItem({ amount: 1.25, calories: 188 }));
+    const load = jest
+      .fn()
+      .mockResolvedValue([event({ id: "a", raw_text: "Greek yogurt", status: "completed" })]);
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        editItem={editItem}
+        items={{ a: [foodItem()] }}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    press(tree, "Greek yogurt, 150 kcal");
+    await act(async () => {
+      press(tree, "Increase amount");
+    });
+
+    // FTY-092 amount-adjust called with the stepped quantity; server values shown.
+    expect(editItem).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: SESSION!.userId }),
+      "food",
+      "item-1",
+      "quantity",
+      1.25,
+    );
+    expect(textContent(tree)).toContain("188");
+
+    // Closing returns to the timeline, which now reflects the recomputed value.
+    press(tree, "Close");
+    expect(hasA11yLabel(tree, "Increase amount")).toBe(false);
+    expect(hasA11yLabel(tree, "Greek yogurt, 188 kcal")).toBe(true);
+  });
+
+  it("exposes a ≥44pt tap target with a VoiceOver label on the completed item row", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([event({ id: "a", raw_text: "Greek yogurt", status: "completed" })]);
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        items={{ a: [foodItem()] }}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    const row = tree.root.find(
+      (n) =>
+        n.props.accessibilityLabel === "Greek yogurt, 150 kcal" &&
+        typeof n.props.onPress === "function",
+    );
+    expect(row.props.accessibilityRole).toBe("button");
+    expect(row.props.accessibilityHint).toBe("Tap to view details");
+    expect(resolvedStyle(row).minHeight).toBeGreaterThanOrEqual(44);
+  });
+});
+
+// ─── Needs-clarification legibility + clarify-mode wiring (FTY-149) ───────────
+
+describe("TodayScreen needs-clarification entries", () => {
+  it("renders a needs_clarification entry legibly and invitingly, never a silent row", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([
+        event({ id: "a", raw_text: "milk", status: "needs_clarification" }),
+      ]);
+    const tree = mount(
+      <TodayScreen session={SESSION} load={load} useActive={INACTIVE} />,
+    );
+    await act(async () => {});
+
+    // The gentle "needs a detail" affordance + inviting call-to-action are
+    // present — not a bare dashed "—" silent row.
+    const text = textContent(tree);
+    expect(text).toContain("needs a detail");
+    expect(text).toContain("Add a detail");
+    // The typed phrase still reads in the row.
+    expect(text).toContain("milk");
+  });
+
+  it("exposes the needs-a-detail state and a resolve hint to VoiceOver on a ≥44pt target", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([
+        event({ id: "a", raw_text: "milk", status: "needs_clarification" }),
+      ]);
+    const tree = mount(
+      <TodayScreen session={SESSION} load={load} useActive={INACTIVE} />,
+    );
+    await act(async () => {});
+
+    const row = tree.root.find(
+      (n) =>
+        n.props.accessibilityLabel === "milk, needs a detail, uncounted" &&
+        typeof n.props.onPress === "function",
+    );
+    expect(row.props.accessibilityRole).toBe("button");
+    expect(row.props.accessibilityHint).toBe(
+      "Tap to add the missing detail so Fatty can count it",
+    );
+    expect(resolvedStyle(row).minHeight).toBeGreaterThanOrEqual(44);
+  });
+
+  it("opens the correction sheet in clarify-mode on tap, with no auto-filled detail", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([
+        event({ id: "a", raw_text: "milk", status: "needs_clarification" }),
+      ]);
+    const tree = mount(
+      <TodayScreen session={SESSION} load={load} useActive={INACTIVE} />,
+    );
+    await act(async () => {});
+
+    // The clarify free-text input is not mounted until the row is tapped.
+    expect(hasA11yLabel(tree, "Your answer")).toBe(false);
+
+    press(tree, "milk, needs a detail, uncounted");
+
+    // Clarify-mode is shown: free-text fallback present, and the missing detail
+    // is never pre-filled (Fatty does not fabricate the answer).
+    expect(hasA11yLabel(tree, "Your answer")).toBe(true);
+    expect(inputValue(tree, "Your answer")).toBe("");
+    // Clarify-mode only — the amount stepper / change-match levers stay hidden.
+    expect(hasA11yLabel(tree, "Increase amount")).toBe(false);
+  });
+
+  it("resolves via the existing create path so the entry recomputes and counts", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([
+        event({ id: "a", raw_text: "milk", status: "needs_clarification" }),
+      ]);
+    const create = jest
+      .fn()
+      .mockResolvedValue(
+        event({ id: "b", raw_text: "milk 2%", status: "completed" }),
+      );
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    press(tree, "milk, needs a detail, uncounted");
+    typeInto(tree, "Your answer", "2%");
+    await act(async () => {
+      press(tree, "Submit answer");
+    });
+
+    // The answer travels the existing create path as the typed phrase + answer,
+    // never auto-filled or fabricated.
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: SESSION!.userId }),
+      "milk 2%",
+    );
+
+    // The original needs-a-detail entry is superseded in place: its treatment is
+    // gone and the now-counting re-submission stands in for it.
+    expect(hasA11yLabel(tree, "milk, needs a detail, uncounted")).toBe(false);
+    expect(textContent(tree)).toContain("milk 2%");
+  });
+
+  it("restores the original entry and surfaces an error when the clarify re-submission fails", async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValue([
+        event({ id: "a", raw_text: "milk", status: "needs_clarification" }),
+      ]);
+    const create = jest
+      .fn()
+      .mockRejectedValue(
+        new LogEventApiError(422, "That entry couldn't be saved."),
+      );
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    press(tree, "milk, needs a detail, uncounted");
+    typeInto(tree, "Your answer", "2%");
+    await act(async () => {
+      press(tree, "Submit answer");
+    });
+
+    // The create failed: the optimistic hide is rolled back so the original
+    // needs-a-detail entry reappears (a user-reachable retry path), and the
+    // failure is surfaced rather than swallowed.
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: SESSION!.userId }),
+      "milk 2%",
+    );
+    expect(hasA11yLabel(tree, "milk, needs a detail, uncounted")).toBe(true);
+    expect(textContent(tree)).toContain("That entry couldn't be saved.");
+  });
+
+  it("keeps the answered entry hidden even after a poll re-fetches it as needs_clarification", async () => {
+    jest.useFakeTimers();
+    try {
+      const load = jest
+        .fn()
+        // Initial load + every poll keep returning the still-unresolved server row.
+        .mockResolvedValue([
+          event({ id: "a", raw_text: "milk", status: "needs_clarification" }),
+        ]);
+      const create = jest
+        .fn()
+        .mockResolvedValue(
+          event({ id: "b", raw_text: "milk 2%", status: "pending" }),
+        );
+      const tree = mount(
+        <TodayScreen
+          session={SESSION}
+          load={load}
+          create={create}
+          useActive={() => true}
+          pollIntervalMs={1000}
+        />,
+      );
+      await act(async () => {});
+
+      press(tree, "milk, needs a detail, uncounted");
+      typeInto(tree, "Your answer", "2%");
+      await act(async () => {
+        press(tree, "Submit answer");
+      });
+
+      // The re-submission is pending → polling runs and re-fetches the original
+      // needs_clarification row; it must stay filtered (resolved this session).
+      act(() => jest.advanceTimersByTime(1000));
+      await act(async () => {});
+
+      expect(hasA11yLabel(tree, "milk, needs a detail, uncounted")).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
@@ -853,6 +1257,7 @@ describe("TodayScreen typeahead suggestion bar", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ userId: SESSION!.userId }),
       "banana",
+      expect.any(String),
     );
     expect(textContent(tree)).toContain("banana");
   });
@@ -890,5 +1295,185 @@ describe("TodayScreen typeahead suggestion bar", () => {
     // Entry and synthetic item rolled back; error surfaced.
     expect(textContent(tree)).toContain("That entry couldn't be saved.");
     expect(textContent(tree)).toContain("Log your first thing");
+  });
+});
+
+// ─── Consolidated logging on Today (FTY-147) ─────────────────────────────────
+
+describe("TodayScreen composer — calm, status-first", () => {
+  it("does not auto-focus the composer on mount (Today is the status-home)", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const tree = mount(
+      <TodayScreen session={SESSION} load={load} useActive={INACTIVE} />,
+    );
+    await act(async () => {});
+
+    const input = tree.root.find(
+      (n) => n.props.accessibilityLabel === "Log food or exercise",
+    );
+    // Auto-raising the keyboard on a dashboard is jarring (Calm by default).
+    expect(input.props.autoFocus).toBeFalsy();
+  });
+
+  it("acknowledges a submit in the single timeline — no separate 'added this session' feed", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    let resolveCreate!: (dto: LogEventDTO) => void;
+    const create = jest.fn().mockReturnValue(
+      new Promise<LogEventDTO>((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        useActive={INACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    typeInto(tree, "Log food or exercise", "greek yogurt");
+    press(tree, "Add entry");
+
+    // Immediate acknowledgement in the canonical timeline; composer cleared.
+    expect(textContent(tree)).toContain("greek yogurt");
+    expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    expect(inputValue(tree, "Log food or exercise")).toBe("");
+    // There is exactly one timeline — no harvested "Added this session" feed.
+    expect(textContent(tree)).not.toContain("Added this session");
+
+    await act(async () => {
+      resolveCreate(
+        event({ id: "server-1", raw_text: "greek yogurt", status: "completed" }),
+      );
+    });
+    expect(textContent(tree)).toContain("greek yogurt");
+  });
+});
+
+describe("TodayScreen offline-queue logging", () => {
+  it("queues an unreachable submit as a dedicated OfflineEntryRow + banner, never blocking", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const create = jest.fn().mockRejectedValue(networkError());
+    const { store, data } = memoryStore();
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        useActive={INACTIVE}
+        outboxStore={store}
+        generateKey={sequentialKeys()}
+        now={() => "2026-06-28T08:00:00.000Z"}
+      />,
+    );
+    await act(async () => {});
+
+    typeInto(tree, "Log food or exercise", "two eggs");
+    await act(async () => {
+      press(tree, "Add entry");
+    });
+
+    // Capture was not blocked: composer stays mounted and the input cleared.
+    expect(hasA11yLabel(tree, "Log food or exercise")).toBe(true);
+    expect(inputValue(tree, "Log food or exercise")).toBe("");
+
+    // The capture renders as a dedicated offline row (in words), uncounted.
+    expect(hasA11yLabel(tree, "two eggs, offline, queued to send")).toBe(true);
+    // The calm connection banner reflects the offline + queued state.
+    expect(textContent(tree)).toContain("Offline");
+    expect(textContent(tree)).toContain("1 entry queued");
+
+    // It is durably persisted with the stable idempotency key.
+    expect(data.get(SESSION!.userId)).toEqual([
+      {
+        idempotencyKey: "key-0",
+        userId: SESSION!.userId,
+        rawText: "two eggs",
+        capturedAt: "2026-06-28T08:00:00.000Z",
+        syncState: "queued",
+      },
+    ]);
+  });
+
+  it("does not render the offline capture through EntryRow's status placeholder", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const create = jest.fn().mockRejectedValue(networkError());
+    const { store } = memoryStore();
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        useActive={INACTIVE}
+        outboxStore={store}
+        generateKey={sequentialKeys()}
+      />,
+    );
+    await act(async () => {});
+
+    typeInto(tree, "Log food or exercise", "two eggs");
+    await act(async () => {
+      press(tree, "Add entry");
+    });
+
+    // The dedicated offline row is present…
+    expect(hasA11yLabel(tree, "two eggs, offline, queued to send")).toBe(true);
+    // …and the offline capture is NOT rendered as a pending EntryRow (which would
+    // read "Waiting to estimate"). The offline row owns the offline state.
+    expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(false);
+  });
+
+  it("drains the outbox on reconnect; the capture folds into the normal pending flow", async () => {
+    jest.useFakeTimers();
+    try {
+      const load = jest.fn().mockResolvedValue([]);
+      const serverEvent = event({
+        id: "server-1",
+        raw_text: "two eggs",
+        status: "pending",
+      });
+      // Online attempt fails unreachable; the reconnect drain succeeds.
+      const create = jest
+        .fn()
+        .mockRejectedValueOnce(networkError())
+        .mockResolvedValue(serverEvent);
+      const { store } = memoryStore();
+      const tree = mount(
+        <TodayScreen
+          session={SESSION}
+          load={load}
+          create={create}
+          useActive={INACTIVE}
+          outboxStore={store}
+          generateKey={sequentialKeys()}
+          now={() => "2026-06-28T08:00:00.000Z"}
+          retryIntervalMs={1000}
+        />,
+      );
+      await act(async () => {});
+
+      typeInto(tree, "Log food or exercise", "two eggs");
+      await act(async () => {
+        press(tree, "Add entry");
+      });
+      expect(hasA11yLabel(tree, "two eggs, offline, queued to send")).toBe(true);
+
+      // Reconnect probe fires: the drain re-submits with the SAME key.
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      // The drain re-submitted with the SAME idempotency key minted at capture.
+      const lastCall = create.mock.calls[create.mock.calls.length - 1];
+      expect(lastCall[1]).toBe("two eggs");
+      expect(lastCall[2]).toBe("key-0");
+      // The entry left the offline queue and now follows the normal pending flow.
+      expect(hasA11yLabel(tree, "two eggs, offline, queued to send")).toBe(false);
+      expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
