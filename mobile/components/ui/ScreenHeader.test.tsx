@@ -95,6 +95,25 @@ describe("ScreenHeader", () => {
     expect(container).toBeTruthy();
   });
 
+  it("does not impose its own horizontal padding (inherits it from the host content so the title aligns with the body)", () => {
+    const tree = mount(<ScreenHeader title="Trends" />);
+    const container = tree.root.find(
+      (n) =>
+        Array.isArray(n.props.style) &&
+        n.props.style.some(
+          (s: Record<string, unknown>) =>
+            s && typeof s === "object" && s.paddingTop === 55,
+        ),
+    );
+    const flattened = (container.props.style as Record<string, unknown>[]).reduce(
+      (acc, s) => (s && typeof s === "object" ? { ...acc, ...s } : acc),
+      {} as Record<string, unknown>,
+    );
+    expect(flattened.paddingHorizontal).toBeUndefined();
+    expect(flattened.paddingLeft).toBeUndefined();
+    expect(flattened.paddingRight).toBeUndefined();
+  });
+
   it("renders correctly in dark mode", () => {
     const tree = mount(<ScreenHeader title="Today" />, "dark");
     const header = tree.root.find(
