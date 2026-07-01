@@ -42,7 +42,7 @@ This script:
 1. Builds the E2E debug binary with `EXPO_PUBLIC_FATTY_E2E=true` (iOS simulator
    by default; set `PLATFORM=android` to build an APK).
 2. Installs the binary on the active simulator/emulator.
-3. Runs `maestro test .maestro/smoke.yaml`.
+3. Runs `maestro test .maestro/` — every flow in this directory.
 
 **Running the flow directly** (if you already have the binary installed):
 
@@ -53,14 +53,11 @@ maestro test .maestro/smoke.yaml
 
 ## Bundle ID
 
-The smoke flow uses bundle ID `com.fatty` by default (Expo prebuild from slug
-`"fatty"`). If your prebuild produced a different identifier, set the env var:
-
-```sh
-APP_BUNDLE_ID=com.yourorg.fatty maestro test .maestro/smoke.yaml
-```
-
-Or edit the `appId` line in `smoke.yaml` permanently.
+The flows use bundle ID `com.fatty`. Expo prebuild generates the native iOS
+bundle identifier and Android package from `app.json`, and each Maestro flow
+declares the same literal `appId` so directory-level runs launch the installed
+app under test reliably. If the app ID changes, update `app.json` and every flow
+`appId` together.
 
 ## Flows
 
