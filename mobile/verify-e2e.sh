@@ -35,6 +35,7 @@ PLATFORM="${PLATFORM:-ios}"
 METRO_PORT="8081"
 METRO_LOG="${E2E_METRO_LOG:-${TMPDIR:-/tmp}/fatty-e2e-metro.log}"
 METRO_PID=""
+METRO_STATUS_ERROR=""
 
 # A clean build (no cache) is the local default for a deterministic binary. CI
 # sets E2E_BUILD_CACHE to reuse the cached Gradle state so the emulator build
@@ -64,6 +65,24 @@ dump_metro_log() {
   fi
 }
 
+metro_ready() {
+  local host
+  local response
+
+  for host in localhost 127.0.0.1; do
+    if response="$(curl --fail --silent --max-time 2 "http://$host:$METRO_PORT/status" 2>&1)"; then
+      if [[ "$response" == *"packager-status:running"* ]]; then
+        return 0
+      fi
+      METRO_STATUS_ERROR="unexpected response from $host: $response"
+    else
+      METRO_STATUS_ERROR="curl failed for $host: $response"
+    fi
+  done
+
+  return 1
+}
+
 start_metro() {
   echo "==> [verify-e2e] Starting Expo dev server..."
   : > "$METRO_LOG"
@@ -79,7 +98,7 @@ start_metro() {
       exit 1
     fi
 
-    if curl --fail --silent --max-time 2 "http://127.0.0.1:$METRO_PORT/status" | grep -q "packager-status:running"; then
+    if metro_ready; then
       echo "==> [verify-e2e] Expo dev server is ready."
       return
     fi
@@ -88,6 +107,9 @@ start_metro() {
   done
 
   echo "ERROR: Expo dev server did not become ready on port $METRO_PORT."
+  if [ -n "$METRO_STATUS_ERROR" ]; then
+    echo "Last status probe: $METRO_STATUS_ERROR"
+  fi
   dump_metro_log
   exit 1
 }
