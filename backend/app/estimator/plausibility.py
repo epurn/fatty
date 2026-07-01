@@ -367,7 +367,8 @@ def _question(item_name: str, mode: str) -> str:
 
     The item name comes from the schema-validated ``ParsedCandidate.name``, which is
     bounded to ``MAX_NAME_LEN = 200`` characters and stored as data — never executed.
-    The question text is always bounded and never echoes raw user input.
+    The question interpolates only that bounded name into a fixed template; it never
+    echoes the raw log text or any unbounded model output.
     """
 
     if mode == "unit":
