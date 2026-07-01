@@ -67,7 +67,9 @@ dump_metro_log() {
 start_metro() {
   echo "==> [verify-e2e] Starting Expo dev server..."
   : > "$METRO_LOG"
-  EXPO_PUBLIC_FATTY_E2E=true npx expo start --dev-client --host localhost --port "$METRO_PORT" > "$METRO_LOG" 2>&1 &
+  # Expo 57 otherwise prepares the standalone React Native DevTools shell, whose
+  # bundled Chromium sandbox is not usable on GitHub's headless Linux runner.
+  EXPO_PUBLIC_FATTY_E2E=true EXPO_UNSTABLE_HEADLESS=1 npx expo start --dev-client --host localhost --port "$METRO_PORT" > "$METRO_LOG" 2>&1 &
   METRO_PID="$!"
 
   for _ in $(seq 1 60); do
