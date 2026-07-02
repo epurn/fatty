@@ -5,8 +5,10 @@
 Accepted. Decided 2026-07-01.
 
 Phase 1 (Layer A, estimate-first prompting, and the measurement harness) is
-**shipped**. Phases 2–3 (Layer B, naturalistic calibration data, and Layer C)
-are **queued** — see Consequences.
+**shipped**. Phase 2's Layer B self-consistency signal is **shipped** (FTY-158)
+as an offline-validated signal — not yet wired into the live gate. Naturalistic
+calibration data (FTY-169) and Layer C (FTY-159) remain **queued** — see
+Consequences.
 
 This ADR supersedes the internal command-centre research doc that originally
 explored this problem as the decision of record for this architecture — that
@@ -106,7 +108,7 @@ so any change to the clarify gate — prompt, layer, or threshold — can be
 measured against a fixed standard rather than judged by anecdote. This harness
 is what phases 2–3 calibrate against.
 
-### Layer B — self-consistency signal (queued, FTY-158, phase 2)
+### Layer B — self-consistency signal (shipped, FTY-158, phase 2)
 
 Sample the parse step N≈3 times in parallel and measure agreement across the
 parsed items and quantities, hybridized with the verbalized score into a
@@ -115,6 +117,19 @@ completions, not logprobs — so it works against Claude where logprob-based
 estimators cannot. It follows the self-consistency line of work established
 for hallucination/confidence detection without model internals (Manakul et
 al., EMNLP 2023, SelfCheckGPT).
+
+Shipped as `backend/app/estimator/self_consistency.py`: a pairwise
+item/quantity concordance metric over N=3 parallel samples with a
+unanimous-first-window early stop (window 2 — easy inputs pay one extra sample,
+contested inputs pay the full N), hybridized with the verbalized mean at
+agreement weight 0.6 (chosen so total disagreement stays below the 0.45
+operating threshold even at verbalized confidence 1.0 — fail closed). Measured
+on the FTY-157 set: 94.7% correct decisions for the hybrid (93.7%
+agreement-only) versus 85.3% for the verbalized baseline at the 0.45 operating
+point, with over-ask 11.5% → 3.5% and under-ask 21% → 9%
+(`tests/fixtures/parse_calibration/self_consistency_summary.json`). The signal
+is **not yet wired into the live gate** — that bake-off and threshold
+calibration is Layer C (FTY-159).
 
 ### Naturalistic calibration data (queued, FTY-169, phase 2)
 
