@@ -50,7 +50,10 @@ duplicate-entry audit findings (A3/A5); the missing question/options in the
 read were finding A2. Consumers landing against the new shapes: FTY-172
 (estimator produces question + options — see `parse-candidates.md` v2),
 FTY-171 (backend serves the new read shape and implements the answer
-round-trip), FTY-153 (mobile clarify sheet).
+round-trip — which requires **evolving `estimation-jobs.md`** beyond its v1
+one-job-per-event / never-reprocessed rules to express the answer-triggered
+re-estimate; the pending amendment is recorded there), FTY-153 (mobile
+clarify sheet).
 
 3 (FTY-152): adds an **owner-scoped clarification read** —
 `GET /api/users/{user_id}/log-events/{event_id}/clarification` — that returns the
@@ -110,10 +113,11 @@ authenticated user's own `{user_id}`.
   events by id (for polling).
 - `GET /api/users/{user_id}/log-events/{event_id}/clarification` — returns the
   **unanswered** clarification questions persisted for one of the user's
-  events — question text plus quick-pick options — ordered by `position`. A
-  lazy per-event read the client fetches when opening the clarify sheet, so
-  the Today list/poll DTO stays lean. See
-  [Clarification read](#clarification-read).
+  `needs_clarification` events — question text plus quick-pick options —
+  ordered by `position`. The read is **status-gated**: an event in any other
+  status serves `{ "questions": [] }`. A lazy per-event read the client
+  fetches when opening the clarify sheet, so the Today list/poll DTO stays
+  lean. See [Clarification read](#clarification-read).
 - `POST /api/users/{user_id}/log-events/{event_id}/clarification/answers` —
   `{ "question_id": UUID, "answer": str }`. Resolves one clarification
   question on the user's own `needs_clarification` event by applying the
@@ -196,10 +200,11 @@ actual question with tappable quick-pick chips and a free-text fallback
 (`docs/design/ux-design.md` §4a) instead of a generic line over a bare text
 field.
 
-The response carries the event's **unanswered** questions, ordered by
-`position`. Each question carries its persisted row's stable `id` (the key an
-answer submission references), the specific question `text`, and an `options`
-array of candidate quick-pick values:
+The response carries a `needs_clarification` event's **unanswered** questions,
+ordered by `position` (the read is **status-gated** — see below). Each
+question carries its persisted row's stable `id` (the key an answer submission
+references), the specific question `text`, and an `options` array of candidate
+quick-pick values:
 
 ```json
 {
@@ -217,25 +222,39 @@ array of candidate quick-pick values:
   can render one-tap chips; the server never validates an answer against
   them. **Free-text is always an allowed answer**, whether or not options are
   present.
-- **When present, options are 2–5 short candidates**, each length-bounded —
-  the bounds and the persistence shape are the parse contract's
+- **When present, options are up to 5 short candidates** (2–5 by producer
+  guidance — the parse schema enforces only the hard caps, so a persisted
+  list outside that guidance is served as-is), each length-bounded — the
+  bounds and the persistence shape are the parse contract's
   (`parse-candidates.md` v2, `ClarificationQuestion`). The list MAY be empty;
   the client then shows the free-text affordance only (e.g. the deterministic
   plausibility gate's targeted question and the persisted default question
   carry no options).
-- **Owned event with unanswered questions** → `200` with the questions ordered
-  by `position`, matching the stored rows.
-- **Owned event with no unanswered clarification rows** — any
-  non-`needs_clarification` event, or one with none persisted →
+
+The read is **status-gated, not row-driven**: questions are served only while
+the event is in `needs_clarification` — the only status in which a fresh
+answer can be accepted (see the `409` rule under
+[Clarification answer](#clarification-answer-resolve)).
+
+- **Owned `needs_clarification` event with unanswered questions** → `200` with
+  the questions ordered by `position`, matching the stored rows.
+- **Owned event in any other status, or with no unanswered rows persisted** →
   `200 { "questions": [] }`. There is **no status oracle**: "wrong status" and
-  "no rows" are indistinguishable.
+  "no rows" are indistinguishable. The status gate matters in the mid-round
+  window the answer flow itself creates: with two questions in a round,
+  answering Q1 drives the event to `processing` while Q2's row is still
+  persisted and unanswered. The read returns `[]` in that window rather than
+  serving a question whose fresh answer would `409` (a chip the client could
+  only dead-end on). The leftover row is stale pending the re-estimate's
+  outcome — a fresh clarification round **replaces** the unanswered rows, and
+  a completing re-estimate leaves them permanently unserved.
 - **Cross-user or nonexistent `event_id`** → `404`, reusing get-by-id's
   fail-closed scoping (no existence oracle).
 
 An answered question is resolved and is not re-served. When a re-estimate
 raises a fresh clarification round, the new round's questions **replace** the
-event's unanswered rows (see `parse-candidates.md`), so the read always serves
-exactly the questions still open.
+event's unanswered rows (see `parse-candidates.md`), so for a
+`needs_clarification` event the read serves exactly the questions still open.
 
 ### Clarification answer (resolve)
 
@@ -269,8 +288,14 @@ A fresh, valid answer:
 2. transitions the **same** event `needs_clarification → processing` — the
    transition already legal in the state machine below — and re-estimates it
    with the raw phrase plus **every answered (question, answer) pair** as
-   structured input (the job/run mechanics of that re-estimate are FTY-171's
-   implementation against `estimation-jobs.md`);
+   structured input. The job/run mechanics of that re-estimate are FTY-171's
+   implementation, and they **evolve `estimation-jobs.md`** (a version bump,
+   not a drop-in): that contract's v1 rules — a unique `log_event_id` on
+   `estimation_jobs` (exactly one job per event) and "a job terminal in
+   `needs_clarification` is never reprocessed" — predate a user-driven
+   resolve and cannot express this re-estimate as written. The required
+   amendment is recorded in `estimation-jobs.md`
+   (Migration / Compatibility);
 3. returns `201` with the event DTO at `status: "processing"`, so the client
    updates the entry in place and polls as usual.
 
@@ -320,6 +345,10 @@ question's answer already drove it to `processing`) →
 `409 {"error": "not_awaiting_clarification"}`; nothing is persisted or
 mutated. Only the replay path returns success for a
 non-`needs_clarification` event, because that answer has already been applied.
+Because the clarification read is status-gated, a client that fetches fresh
+never renders a chip that would `409`; the `409` guards the race where the
+client holds questions from an earlier fetch (or a sibling answer lands
+concurrently) and the event has since moved on.
 
 **Answer persistence (implemented by FTY-171).** One row per answered question
 in `clarification_answers`: `id` (UUID PK), `question_id` (UUID, FK →
@@ -459,7 +488,8 @@ curl -s :8000/api/users/<uid>/log-events/<event_id> -H 'authorization: Bearer <t
 curl -s :8000/api/users/<uid>/log-events/<event_id>/clarification -H 'authorization: Bearer <t>'
 # → 200 { "questions": [ { "id": "b9c1…", "text": "How many cracker sandwiches?",
 #                          "options": ["2", "4", "6"] } ] }
-# (an event with no unanswered clarification rows → 200 { "questions": [] })
+# (status-gated: an event not in needs_clarification, or with no unanswered
+#  rows, → 200 { "questions": [] })
 
 # Answer one question (a tapped chip or free text), then retry the same answer safely
 curl -sX POST :8000/api/users/<uid>/log-events/<event_id>/clarification/answers \
@@ -503,4 +533,3 @@ curl -sX POST :8000/api/users/<uid>/log-events/<event_id>/clarification/answers 
   parse contract's (`parse-candidates.md` v2, migration with FTY-172); the
   `clarification_answers` table, the new read shape, and the answer round-trip
   are FTY-171; the mobile clarify sheet (FTY-153) consumes both new shapes.
-```

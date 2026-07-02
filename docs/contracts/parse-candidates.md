@@ -172,7 +172,8 @@ answer) lands on `needs_clarification` again, the fresh round's questions
 **replace** the event's unanswered question rows in that same transaction —
 answered questions and their `clarification_answers` are preserved, since they
 carry the accumulated details the re-estimate consumes — so the clarification
-read always serves exactly the open questions.
+read (status-gated to `needs_clarification`; `log-events.md`) serves exactly
+the fresh round's open questions.
 
 ### Detail-signal routing override (FTY-167)
 
