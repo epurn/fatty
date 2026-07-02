@@ -99,10 +99,18 @@ appId: com.fatty
 - tapOn:
     text: "Refresh"
 
-# Step 11: Assert the entry counts — the CalorieHero accessibility label
-#          includes the consumed kcal from the E2E_RESOLVED_SUMMARY fixture
-#          (120 kcal of 2,000 kcal).
+# Step 11: Assert the entry counts — the CalorieHero renders the consumed kcal
+#          from the E2E_RESOLVED_SUMMARY fixture and the target context
+#          separately (120 kcal of 2,000 kcal, 6% consumed).
 - extendedWaitUntil:
     visible:
-      text: "120 of 2,000 kcal"
+      text: "120"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      text: ".*of 2,000 kcal.*6%.*"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      text: "1,880 to go"
     timeout: 10000
