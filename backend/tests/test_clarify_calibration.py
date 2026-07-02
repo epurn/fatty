@@ -8,11 +8,14 @@ This suite is what makes the operating point *held*, not just derived once:
 - the production constant (``NL_PARSE_CLARIFY_POLICY``) must equal the derived
   winner's threshold, so the live gate can never drift from the data;
 - the calibrated decision must keep beating the retired verbalized-vs-0.45
-  baseline and must stay above absolute floors — a prompt or model change that
-  degrades the operating point past them fails verification and requires
-  recalibrating against the harness (ADR 0003, Consequences).
+  baseline and must stay above absolute floors, so a fixture, signal-code, or
+  selection-rule change that degrades the operating point past them fails
+  verification.
 
-Everything here is deterministic and offline (recorded fixture signals only).
+Everything here is deterministic and offline (recorded fixture signals only) —
+no provider is invoked, so a prompt or model change leaves every number here
+untouched. Recalibrating after one is a manual step: re-run the harness
+bake-off over re-recorded or live provider outputs (ADR 0003, Consequences).
 """
 
 from __future__ import annotations

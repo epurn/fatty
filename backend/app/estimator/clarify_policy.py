@@ -22,12 +22,17 @@ the calibration target) it reaches 63.1% coverage where the verbalized baseline
 manages 40.0% and agreement-only never reaches the target at all. The operating
 threshold is the midpoint of the empirical margin band around that operating
 point, giving measured over-ask 6.5% / under-ask 1.9% versus the retired
-verbalized-vs-0.45 gate's 12.4% / 19.4% on the same set. The committed
-derivation is ``tests/fixtures/parse_calibration/calibration_summary.json``;
-``tests/test_clarify_calibration.py`` re-derives it on every run and fails if
-this constant drifts from the data — a prompt or model change that degrades the
-operating point past its floors fails verification and requires recalibrating
-against the harness (ADR 0003, Consequences).
+verbalized-vs-0.45 gate's 12.4% / 19.4% on the same set (author-constructed
+stand-in fixtures, not recorded user traffic — see the fixture README). The
+committed derivation is
+``tests/fixtures/parse_calibration/calibration_summary.json``;
+``tests/test_clarify_calibration.py`` re-derives it on every run *from the
+committed static fixtures* (no provider is invoked) and fails if this
+constant, the committed artifact, or the floors drift from those sets. That
+gate catches fixture, signal-code, or selection-rule changes only — a prompt
+or model change leaves the fixture-derived numbers untouched and verification
+green, so recalibrating after one is a manual step: re-run the harness
+bake-off over re-recorded or live provider outputs (ADR 0003, Consequences).
 
 Temperature scaling (Guo et al., ICML 2017) was considered and deliberately not
 fit: it is a monotone transform of the score, so for a single-threshold

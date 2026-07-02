@@ -179,16 +179,27 @@ which owns the architecture decision this implements):
   and committed as the midpoint of the empirical margin band around the
   selected point. Measured on the combined set: over-ask 12.4% → 6.5%,
   under-ask 19.4% → 1.9%, correct decisions 85.2% → 95.1% versus the retired
-  gate. The constant lives in `app/estimator/clarify_policy.py`
+  gate. **Provenance caveat:** both calibration bands are author-constructed
+  stand-ins, not recorded user traffic — the synthetic band is synthetic by
+  construction, and the naturalistic band's "recorded" samples were authored
+  alongside this calibration (`generate_naturalistic_seed.py`, provenance
+  declared per record via `source_kind`; see the fixture README) — so the
+  operating point and the improvement rates above quantify an authored
+  simulation until a live-recorded band replaces the stand-ins. The constant
+  lives in `app/estimator/clarify_policy.py`
   (`NL_PARSE_CLARIFY_POLICY`); the committed derivation is
   `backend/tests/fixtures/parse_calibration/calibration_summary.json`.
 - **Regression gate.** `backend/tests/test_clarify_calibration.py` re-derives
-  the bake-off on every verification run: the production constant must equal
-  the derived point, the calibrated decision must keep beating the
-  verbalized-vs-0.45 baseline, and absolute floors (correct-decision rate,
-  precision, over-/under-ask, coverage) must hold — a prompt or model change
-  that degrades the operating point fails CI and requires recalibration
-  against the harness before it can land.
+  the bake-off on every verification run **from the committed static fixtures —
+  no provider is invoked**: the production constant must equal the derived
+  point, the committed artifact must match a fresh derivation, the calibrated
+  decision must keep beating the verbalized-vs-0.45 baseline, and absolute
+  floors (correct-decision rate, precision, over-/under-ask, coverage) must
+  hold. The gate therefore catches fixture, signal-code, or selection-rule
+  changes only; a prompt or model change leaves every fixture-derived number
+  identical and CI green. Recalibrating after a prompt or model change is a
+  **manual step**: re-run the harness bake-off over re-recorded or live
+  provider outputs and recommit the derivation.
 - **The label path shares the mechanism.** The nutrition-label gate
   (`label-extraction.md`) routes through the same `ClarifyPolicy` type
   (`LABEL_CLARIFY_POLICY`). Its operating point is a **documented tunable**
