@@ -1,13 +1,64 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { DerivedItem } from "@/api/derivedItems";
-import { ProvenanceIcon } from "@/components/ui";
+import { ProvenanceIcon, Skeleton } from "@/components/ui";
 import { useTheme, spacing, typeScale, radius } from "@/theme";
 
 function formatKcal(n: number | null): string {
   if (n === null) return "—";
   return `${Math.round(n)} kcal`;
 }
+
+/**
+ * Fades resolved item content in over the skeleton's footprint (FTY-180): a
+ * short one-shot opacity transition from 0 to 1 on mount. Under Reduce Motion
+ * the resolve is an instant swap — the value never animates in — mirroring
+ * the `Skeleton` component's own motion opt-out.
+ */
+function useResolveFadeOpacity(): Animated.Value {
+  // eslint-disable-next-line react-hooks/refs
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then(
+      (reduced) => {
+        if (!mounted) return;
+        if (reduced) {
+          opacity.setValue(1);
+          return;
+        }
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }).start();
+      },
+      () => {
+        if (mounted) opacity.setValue(1);
+      },
+    );
+    return () => {
+      mounted = false;
+    };
+  }, [opacity]);
+  return opacity;
+}
+
+type ItemTimelineRowProps =
+  | {
+      /** True while the event is pending/processing — no resolved item yet. */
+      loading: true;
+      /** Screen-reader label conveying the in-progress status (e.g. "Estimating"). */
+      accessibilityLabel: string;
+    }
+  | {
+      loading?: false;
+      item: DerivedItem;
+      /** True when the parent log event is needs_clarification. */
+      needsClarification?: boolean;
+      onPress?: () => void;
+    };
 
 /**
  * A single derived item row in the Today timeline (FTY-098).
@@ -17,18 +68,55 @@ function formatKcal(n: number | null): string {
  * gentle inline tag and are visibly uncounted — they do not appear in hero
  * figures per the finalized-state filter, so no extra math needed here.
  * Tapping calls `onPress` (stub for FTY-100 detail sheet).
+ *
+ * `loading` drives the "thinking" state (FTY-180): a pending/processing entry
+ * with no resolved item yet renders a `Skeleton` shimmer in the exact same
+ * container geometry (row height, insets, icon slot, kcal column width) this
+ * component uses once resolved, so the row never jumps or reflows when the
+ * estimate lands — the values simply fade in over the placeholder's footprint.
  */
-export function ItemTimelineRow({
-  item,
-  needsClarification = false,
-  onPress,
-}: {
-  item: DerivedItem;
-  /** True when the parent log event is needs_clarification. */
-  needsClarification?: boolean;
-  onPress?: () => void;
-}) {
+export function ItemTimelineRow(props: ItemTimelineRowProps) {
   const { colors } = useTheme();
+  // Called unconditionally (rules-of-hooks): its value is only read once the
+  // row resolves, but the loading branch returns early below.
+  const opacity = useResolveFadeOpacity();
+
+  if (props.loading) {
+    return (
+      <View
+        style={[styles.row, { borderBottomColor: colors.separator }]}
+        accessibilityRole="progressbar"
+        accessibilityLabel={props.accessibilityLabel}
+      >
+        <View style={styles.iconSlot}>
+          <Skeleton
+            width={16}
+            height={16}
+            borderRadius={8}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
+        </View>
+        <Skeleton
+          width="55%"
+          height={16}
+          borderRadius={radius.sm}
+          style={styles.nameSkeleton}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+        <Skeleton
+          width={64}
+          height={16}
+          borderRadius={radius.sm}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+      </View>
+    );
+  }
+
+  const { item, needsClarification = false, onPress } = props;
 
   const name = item.name;
   const kcal =
@@ -46,49 +134,51 @@ export function ItemTimelineRow({
       : `${name}, ${kcal !== null ? Math.round(kcal) : 0} kcal burned`;
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.row,
-        { borderBottomColor: colors.separator },
-        pressed && { opacity: 0.7 },
-      ]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={a11yLabel}
-      accessibilityHint={needsClarification ? "Tap to add the missing detail" : "Tap to view details"}
-    >
-      {/* Provenance icon — always on */}
-      <ProvenanceIcon source={source} is_edited={is_edited} />
-
-      {/* Name */}
-      <Text
-        style={[styles.name, { color: textColor }]}
-        numberOfLines={1}
-        accessibilityElementsHidden
+    <Animated.View style={{ opacity }}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.row,
+          { borderBottomColor: colors.separator },
+          pressed && { opacity: 0.7 },
+        ]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={a11yLabel}
+        accessibilityHint={needsClarification ? "Tap to add the missing detail" : "Tap to view details"}
       >
-        {name}
-      </Text>
+        {/* Provenance icon — always on */}
+        <ProvenanceIcon source={source} is_edited={is_edited} />
 
-      {/* "needs a detail" tag */}
-      {needsClarification ? (
-        <View
-          style={[styles.needsDetailTag, { backgroundColor: colors.controlBackground }]}
+        {/* Name */}
+        <Text
+          style={[styles.name, { color: textColor }]}
+          numberOfLines={1}
           accessibilityElementsHidden
         >
-          <Text style={[styles.needsDetailText, { color: colors.textMuted }]}>
-            needs a detail
-          </Text>
-        </View>
-      ) : null}
+          {name}
+        </Text>
 
-      {/* Kcal — right-aligned */}
-      <Text
-        style={[styles.kcal, { color: kcalColor }]}
-        accessibilityElementsHidden
-      >
-        {needsClarification ? "—" : formatKcal(kcal)}
-      </Text>
-    </Pressable>
+        {/* "needs a detail" tag */}
+        {needsClarification ? (
+          <View
+            style={[styles.needsDetailTag, { backgroundColor: colors.controlBackground }]}
+            accessibilityElementsHidden
+          >
+            <Text style={[styles.needsDetailText, { color: colors.textMuted }]}>
+              needs a detail
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Kcal — right-aligned */}
+        <Text
+          style={[styles.kcal, { color: kcalColor }]}
+          accessibilityElementsHidden
+        >
+          {needsClarification ? "—" : formatKcal(kcal)}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -106,6 +196,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typeScale.callout,
     fontWeight: "500",
+  },
+  // Matches ProvenanceIcon's own `icon` style width so the loading skeleton's
+  // icon dot lands in the exact same slot the resolved provenance icon fills.
+  iconSlot: {
+    width: 22,
+    alignItems: "center",
+  },
+  nameSkeleton: {
+    flex: 1,
   },
   needsDetailTag: {
     borderRadius: radius.sm,

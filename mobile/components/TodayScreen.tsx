@@ -78,6 +78,7 @@ import {
   optimisticLogEvent,
   reconcileEvents,
   sortByNewest,
+  statusPresentation,
 } from "@/state/today";
 import { useScreenActive } from "@/state/useScreenActive";
 import { useSubmitLog, type SubmitLogBridge } from "@/state/useSubmitLog";
@@ -1271,7 +1272,22 @@ function ClusterView({
             );
           }
 
-          // pending / processing / completed-with-no-items → status placeholder
+          // pending / processing with no resolved item yet → the "thinking"
+          // state: a Skeleton shimmer sized to the resolved ItemTimelineRow it
+          // will become (FTY-180), so the row resolves in place with no
+          // layout shift. Never the literal "Waiting"/"Estimating" text.
+          if (event.status === "pending" || event.status === "processing") {
+            return (
+              <ItemTimelineRow
+                key={event.id}
+                loading
+                accessibilityLabel={statusPresentation(event.status).accessibilityLabel}
+              />
+            );
+          }
+
+          // completed with no items (rare: the estimate produced nothing to
+          // show yet) → terminal status placeholder, not a permanent shimmer.
           return (
             <EntryRow
               key={event.id}

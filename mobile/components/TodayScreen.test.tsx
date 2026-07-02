@@ -131,6 +131,21 @@ function hasA11yLabel(tree: ReactTestRenderer, label: string): boolean {
   return tree.root.findAll((n) => n.props.accessibilityLabel === label).length > 0;
 }
 
+/**
+ * Count pending/processing skeleton rows (FTY-180) by their host container —
+ * `accessibilityRole="progressbar"` plus the status label. Matching on both
+ * props (not just the label) avoids double-counting the `ItemTimelineRow`
+ * composite fiber, whose own props also carry `accessibilityLabel` alongside
+ * the host `View` it renders.
+ */
+function countPendingRows(tree: ReactTestRenderer, label: string): number {
+  return tree.root.findAll(
+    (n) =>
+      n.props.accessibilityRole === "progressbar" &&
+      n.props.accessibilityLabel === label,
+  ).length;
+}
+
 function typeInto(tree: ReactTestRenderer, label: string, value: string): void {
   const node = tree.root.find(
     (n) =>
@@ -223,7 +238,9 @@ describe("TodayScreen", () => {
     expect(load).toHaveBeenCalledTimes(1);
     const content = textContent(tree);
     expect(content).toContain("Oatmeal");
-    expect(content).toContain("Cold brew");
+    // The pending entry renders a skeleton, not its raw text (FTY-180) — the
+    // "thinking" state fills in place with no literal "Waiting"/"thinking" copy.
+    expect(content).not.toContain("Cold brew");
     // Pending and completed are distinguished by accessible status labels.
     expect(hasA11yLabel(tree, "Logged")).toBe(true);
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
@@ -252,10 +269,12 @@ describe("TodayScreen", () => {
     expect(textContent(tree)).toContain("Your session has expired.");
     expect(hasA11yLabel(tree, "Try again")).toBe(true);
 
-    // Retrying re-fetches and renders the recovered day.
+    // Retrying re-fetches and renders the recovered day. The recovered entry is
+    // pending, so it renders as a skeleton (FTY-180) rather than its raw text —
+    // the accessible status label is the proof the day reloaded.
     press(tree, "Try again");
     await act(async () => {});
-    expect(textContent(tree)).toContain("Oatmeal");
+    expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
   });
 
   it("shows a submitted entry immediately as pending, then reconciles", async () => {
@@ -287,15 +306,22 @@ describe("TodayScreen", () => {
       "greek yogurt",
       expect.any(String),
     );
-    expect(textContent(tree)).toContain("greek yogurt");
+    // A pending entry renders as a skeleton, not its raw text (FTY-180) — the
+    // accessible status label is the acknowledgement that the row landed.
+    expect(textContent(tree)).not.toContain("greek yogurt");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    const pendingRowsBeforeReconcile = countPendingRows(tree, "Waiting to estimate");
 
     await act(async () => {
       resolveCreate(
         event({ id: "server-1", raw_text: "greek yogurt", status: "pending" }),
       );
     });
-    expect(textContent(tree)).toContain("greek yogurt");
+    // Reconciled to the server event in place — still the same single pending
+    // row, no duplicate spawned by the swap.
+    expect(countPendingRows(tree, "Waiting to estimate")).toBe(
+      pendingRowsBeforeReconcile,
+    );
   });
 
   it("rolls back and restores input when create fails", async () => {
@@ -379,7 +405,7 @@ describe("TodayScreen derived items", () => {
     expect(textContent(tree)).toContain("150 kcal");
   });
 
-  it("shows a pending placeholder row for an event without derived items yet", async () => {
+  it("shows a skeleton, not raw text, for a pending event without derived items yet", async () => {
     const load = jest
       .fn()
       .mockResolvedValue([event({ id: "b", raw_text: "Cold brew", status: "pending" })]);
@@ -393,9 +419,15 @@ describe("TodayScreen derived items", () => {
     );
     await act(async () => {});
 
-    // Pending events without items show a status placeholder (raw_text + status icon)
-    expect(textContent(tree)).toContain("Cold brew");
+    // Pending events without items render the "thinking" skeleton sized to the
+    // resolved row (FTY-180) — never the raw phrase or literal "Waiting" text.
+    expect(textContent(tree)).not.toContain("Cold brew");
+    expect(textContent(tree)).not.toContain("Waiting");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    expect(
+      tree.root.findAll((n) => n.props.accessibilityRole === "progressbar")
+        .length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -1088,10 +1120,11 @@ describe("TodayScreen failed-parse rows (FTY-176)", () => {
       expect.any(String),
     );
     // The failed row is superseded in place by the new pending attempt — no
-    // stale duplicate, and it is now a waiting-to-estimate row.
+    // stale duplicate, and it is now a waiting-to-estimate skeleton row
+    // (FTY-180), not the raw text.
     expect(hasA11yLabel(tree, "Retry")).toBe(false);
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
-    expect(textContent(tree)).toContain("asdfghjkl");
+    expect(textContent(tree)).not.toContain("asdfghjkl");
   });
 
   it("Edit as text prefills the composer with the failed text and supersedes the row", async () => {
@@ -1353,17 +1386,22 @@ describe("TodayScreen barcode scanning", () => {
     const [, rawText] = create.mock.calls[0];
     expect(rawText).toBe("5901234123457");
 
-    // Entry appears immediately as pending before create resolves
-    expect(textContent(tree)).toContain("5901234123457");
+    // Entry appears immediately as pending before create resolves — a skeleton
+    // (FTY-180), not the scanned barcode text.
+    expect(textContent(tree)).not.toContain("5901234123457");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    const pendingRowsBeforeReconcile = countPendingRows(tree, "Waiting to estimate");
 
-    // Reconcile with server response
+    // Reconcile with server response — still the same single pending row, no
+    // duplicate spawned by the swap.
     await act(async () => {
       resolveCreate(
         event({ id: "server-1", raw_text: "5901234123457", status: "pending" }),
       );
     });
-    expect(textContent(tree)).toContain("5901234123457");
+    expect(countPendingRows(tree, "Waiting to estimate")).toBe(
+      pendingRowsBeforeReconcile,
+    );
   });
 
   it("rolls back and surfaces an error when the barcode submit fails", async () => {
@@ -1460,8 +1498,9 @@ describe("TodayScreen label capture", () => {
       press(tree, "Upload label");
     });
 
-    // The uploaded event appears on the timeline as pending.
-    expect(textContent(tree)).toContain("nutrition label photo");
+    // The uploaded event appears on the timeline as pending — a skeleton
+    // (FTY-180), not the event's raw text.
+    expect(textContent(tree)).not.toContain("nutrition label photo");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
   });
 });
@@ -1755,13 +1794,15 @@ describe("TodayScreen typeahead suggestion bar", () => {
       press(tree, "Add entry");
     });
 
-    // Normal entry created; no synthetic item.
+    // Normal entry created; no synthetic item, so it renders the pending
+    // skeleton (FTY-180), not its raw text.
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ userId: SESSION!.userId }),
       "banana",
       expect.any(String),
     );
-    expect(textContent(tree)).toContain("banana");
+    expect(textContent(tree)).not.toContain("banana");
+    expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
   });
 
   it("rolls back the synthetic item when create fails after a suggestion is tapped", async () => {
@@ -1840,7 +1881,9 @@ describe("TodayScreen composer — calm, status-first", () => {
     press(tree, "Add entry");
 
     // Immediate acknowledgement in the canonical timeline; composer cleared.
-    expect(textContent(tree)).toContain("greek yogurt");
+    // The pending row is a skeleton (FTY-180), not the raw text — the
+    // accessible status label is the acknowledgement.
+    expect(textContent(tree)).not.toContain("greek yogurt");
     expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
     expect(inputValue(tree, "Log food or exercise")).toBe("");
     // There is exactly one timeline — no harvested "Added this session" feed.
