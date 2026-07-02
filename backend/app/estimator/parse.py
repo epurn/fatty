@@ -50,6 +50,7 @@ from app.estimator.parse_prompt import build_parse_prompt
 from app.estimator.pipeline import (
     AnsweredClarification,
     CandidateDraft,
+    ClarificationDraft,
     EstimationContext,
     NeedsClarification,
     StepError,
@@ -80,10 +81,20 @@ __all__ = [
     "build_parse_prompt",
 ]
 
-#: Fallback question persisted when the samples route to ``needs_clarification``
-#: but supply none — so a ``needs_clarification`` event always has at least one
-#: question for the later answer flow.
+#: Retired generic fallback question. The parse step no longer silently persists
+#: this for low-quality provider clarification output; it is kept as a sentinel
+#: so tests and quality checks can reject accidental fallback regressions.
 DEFAULT_CLARIFICATION_QUESTION = "Could you clarify what you logged and how much?"
+
+_MIN_CLARIFICATION_OPTIONS = 2
+_MAX_CLARIFICATION_OPTIONS = 5
+_GENERIC_QUESTIONS = {
+    "could you clarify what you logged and how much?",
+    "how much was it?",
+    "we need a detail to count this entry.",
+    "can you clarify?",
+    "could you clarify?",
+}
 
 
 @dataclass(frozen=True)
@@ -185,7 +196,7 @@ class ParseStep:
 
         implausible = _first_implausible([item for item, _ in effective])
         if implausible is not None:
-            context.clarification_questions = [implausible]
+            context.clarification_questions = [ClarificationDraft(text=implausible)]
             raise NeedsClarification("implausible_candidate")
 
         for item, assumption in effective:
@@ -273,21 +284,60 @@ def _candidate_has_detail(item: ParsedCandidate) -> bool:
     return has_food_detail(item.amount, item.quantity_text)
 
 
-def _clarification_questions(samples: Sequence[ParseResult]) -> list[str]:
-    """The distinct non-empty questions across the samples, or a single default.
+def _clarification_questions(samples: Sequence[ParseResult]) -> list[ClarificationDraft]:
+    """Return distinct high-quality clarification questions across samples.
 
     Every sample expresses the same event's ambiguity, so their questions are
     pooled (first occurrence wins — duplicates across samples are the common
-    case) rather than taken from one arbitrary sample.
+    case) rather than taken from one arbitrary sample. FTY-172 makes a provider
+    clarification with a missing/generic question or fewer than two options a
+    low-quality structured output: fail closed instead of persisting a generic
+    fallback the user cannot act on.
     """
 
-    questions: list[str] = []
+    questions: list[ClarificationDraft] = []
+    seen: set[str] = set()
     for sample in samples:
         for question in sample.clarification_questions:
-            cleaned = question.strip()
-            if cleaned and cleaned not in questions:
-                questions.append(cleaned)
-    return questions or [DEFAULT_CLARIFICATION_QUESTION]
+            text = question.text.strip()
+            options = _clean_options(question.options)
+            _validate_provider_clarification(text, options)
+            key = _normalise_question(text)
+            if key not in seen:
+                seen.add(key)
+                questions.append(ClarificationDraft(text=text, options=options))
+    if not questions:
+        raise StepFailed("clarification_quality_failed")
+    return questions
+
+
+def _validate_provider_clarification(text: str, options: Sequence[str]) -> None:
+    """Fail closed on clarification output the sheet cannot use directly."""
+
+    if not text or _normalise_question(text) in _GENERIC_QUESTIONS:
+        raise StepFailed("clarification_quality_failed")
+    if not _MIN_CLARIFICATION_OPTIONS <= len(options) <= _MAX_CLARIFICATION_OPTIONS:
+        raise StepFailed("clarification_quality_failed")
+
+
+def _clean_options(options: Sequence[str]) -> list[str]:
+    """Trim and deduplicate display options while preserving model order."""
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for option in options:
+        value = option.strip()
+        key = value.casefold()
+        if key and key not in seen:
+            seen.add(key)
+            cleaned.append(value)
+    return cleaned
+
+
+def _normalise_question(text: str) -> str:
+    """Casefold and collapse spacing for generic-question checks and dedupe."""
+
+    return " ".join(text.casefold().split())
 
 
 def _first_implausible(items: list[ParsedCandidate]) -> str | None:
