@@ -92,9 +92,10 @@ interface TrendsScreenProps {
   unitsPreference?: UnitsPreference;
   /**
    * Injectable for tests; falls back to the live session-scoped value
-   * (state/goalDirection.tsx), which is `null`/unknown until Settings or
-   * Onboarding reports a direction this session. Unknown reads as a neutral
-   * delta (no toward/away claim).
+   * (state/goalDirection.tsx), which the provider hydrates from the authoritative
+   * `GET /goal` read on launch and Settings/Onboarding refresh on a goal save. It
+   * is `null`/unknown only when no goal can be read (offline, or none set), which
+   * reads as a neutral delta (no toward/away claim).
    */
   goalDirection?: GoalDirection;
   now?: Date;
@@ -139,10 +140,11 @@ export function TrendsScreen({
     [session],
   );
 
-  // The goal direction, or `null` when unknown (no `GET /goal` read model; only
-  // known once Settings/Onboarding reports it this session — state/goalDirection.tsx).
-  // `resolveDeltaGoalState` treats `null` as neutral so a returning gain/maintain
-  // user is never mis-colored "away" by a guessed default.
+  // The goal direction, or `null` when unknown. The provider hydrates it from the
+  // authoritative `GET /goal` read on launch (and Settings/Onboarding refresh it on
+  // a goal save), so a returning user's existing goal is known after a cold launch.
+  // `resolveDeltaGoalState` treats `null` as neutral so a user whose goal can't be
+  // read is never mis-colored "away" by a guessed default (state/goalDirection.tsx).
   const liveGoalDirection = useGoalDirection();
   const goalDirection: GoalDirection | null =
     goalDirectionOverride ?? liveGoalDirection ?? null;

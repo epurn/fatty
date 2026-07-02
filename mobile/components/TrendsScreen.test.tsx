@@ -9,7 +9,10 @@ import {
 } from "@/api/weightEntries";
 import { DailySummaryApiError } from "@/api/dailySummary";
 import type { DailySummaryDTO, TargetReadModel } from "@/api/dailySummary";
-import type { Session } from "@/state/session";
+import { SessionProvider, type Session, type SessionRecord } from "@/state/session";
+import type { SessionStore } from "@/state/sessionStore";
+import { GoalDirectionProvider } from "@/state/goalDirection";
+import type { GoalDirection } from "@/api/goals";
 import type { CadenceStore, NotificationsAdapter, WeighInCadence } from "@/state/reminderScheduler";
 import { rangeProse, type DateRangeKey } from "@/state/trends";
 import { lightPalette } from "@/theme";
@@ -76,6 +79,20 @@ function makeSummary(
     target: targetCal !== null ? makeTarget(targetCal) : null,
     exercise: { active_calories: 0 },
   };
+}
+
+/** A session store that hydrates the signed-in SESSION for the live-path test. */
+function sessionStore(): SessionStore {
+  let value: SessionRecord | null = { ...SESSION! };
+  return {
+    load: async () => value,
+    save: async (s: SessionRecord) => {
+      value = s;
+    },
+    clear: async () => {
+      value = null;
+    },
+  } satisfies SessionStore;
 }
 
 function mockStore(
@@ -1107,10 +1124,47 @@ describe("TrendsScreen — goal-aware headline delta", () => {
     expect(styleColor(delta)).toBe(lightPalette.coral);
   });
 
+  it("live path: an existing goal hydrated from GET /goal colors the delta with no in-session set", async () => {
+    // The reviewer's core case: a returning user who never touched Settings/
+    // Onboarding this session. The provider hydrates the direction from the
+    // authoritative GET /goal read, so the real mounted screen (reading the live
+    // provider, no injected `goalDirection` prop) colors an increase for a gain
+    // goal as "toward" — not the data-starved neutral it used to show.
+    const reader = jest.fn(async () => "gain" as GoalDirection);
+    const tree = mount(
+      <SessionProvider store={sessionStore()}>
+        <GoalDirectionProvider readActiveGoalDirection={reader}>
+          <TrendsScreen
+            session={SESSION}
+            listWeightEntries={jest.fn().mockResolvedValue(INCREASING)}
+            getDailySummaryRange={jest.fn().mockResolvedValue([])}
+            now={NOW}
+            unitsPreference="metric"
+          />
+        </GoalDirectionProvider>
+      </SessionProvider>,
+    );
+    // Flush session hydration (which the provider's goal read waits on) plus the
+    // screen's own fetches; each resolves on a later tick, so drain a few.
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {});
+    }
+
+    expect(reader).toHaveBeenCalledTimes(1);
+    const delta = findHeadlineDeltaNode(tree);
+    expect(styleColor(delta)).toBe(lightPalette.accentText);
+    const headline = tree.root.findAll(
+      (n) =>
+        typeof n.props.accessibilityLabel === "string" &&
+        (n.props.accessibilityLabel as string).includes("weight trend"),
+    )[0]!;
+    expect(headline.props.accessibilityLabel).toContain("toward your goal");
+  });
+
   it("unknown goal direction (none reported this session) is neutral, never mis-colored 'away'", async () => {
-    // No `goalDirection` prop and no provider value: a returning gain/maintain
+    // No `goalDirection` prop and no provider mounted: a returning gain/maintain
     // user's increase must not be guessed as a loss-goal "away"/coral. With no
-    // authoritative direction (no GET /goal read model) the delta is neutral.
+    // authoritative direction reachable the delta is neutral.
     const tree = mount(
       <TrendsScreen
         session={SESSION}
