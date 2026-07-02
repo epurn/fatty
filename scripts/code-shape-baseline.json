@@ -32,8 +32,8 @@
     "mobile/components/CorrectionSheet.tsx": {
       "kind": "source",
       "lane": "mobile",
-      "lines": 1608,
-      "reason": "Existing over-threshold first-party source file at FTY-200 baseline."
+      "lines": 1397,
+      "reason": "Existing over-threshold first-party source file at FTY-200 baseline; ratcheted down in FTY-183 (native sheet replaces the hand-faked Modal + backdrop + maxHeight/handle logic, removing the reduce-motion effect)."
     },
     "mobile/components/OnboardingScreen.tsx": {
       "kind": "source",
