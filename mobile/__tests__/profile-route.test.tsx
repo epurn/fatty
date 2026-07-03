@@ -93,12 +93,24 @@ describe("Profile native header", () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the appearance-matched frost so a Light/Dark override is honoured", () => {
+  it("keeps the header opaque so content is inset, not floated under it", () => {
+    renderRoute();
+    // A transparent header would float over content and need a manual offset; the
+    // route keeps it opaque so the native stack lays content below the bar.
+    expect(mockCapturedOptions.headerTransparent).toBeUndefined();
+    expect(mockCapturedOptions.headerBlurEffect).toBeUndefined();
+  });
+
+  it("matches the header background to the resolved appearance surface", () => {
     renderRoute("light");
-    expect(mockCapturedOptions.headerBlurEffect).toBe("systemChromeMaterialLight");
+    const lightBg = mockCapturedOptions.headerStyle.backgroundColor;
+    expect(lightBg).toBeTruthy();
 
     mockCapturedOptions = null;
     renderRoute("dark");
-    expect(mockCapturedOptions.headerBlurEffect).toBe("systemChromeMaterialDark");
+    const darkBg = mockCapturedOptions.headerStyle.backgroundColor;
+    expect(darkBg).toBeTruthy();
+    // A Light/Dark override must change the header surface, not the raw system scheme.
+    expect(darkBg).not.toBe(lightBg);
   });
 });
