@@ -82,6 +82,7 @@ export function WeightEntryInput({
         </Text>
       ) : null}
       <Pressable
+        testID="weight-log-submit"
         accessibilityRole="button"
         accessibilityLabel="Log weight"
         accessibilityState={{ disabled: !canSubmit }}

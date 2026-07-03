@@ -80,23 +80,29 @@ appId: com.fatty
     timeout: 10000
 
 # Step 7: …and it is usable, not data-starved: the weight input surface (its
-#         "Weight in kg" accessibility label) is present in the open sheet.
+#         "Weight in kg" accessibility label) is present in the open sheet, and
+#         the header carries the human-formatted date ("Today"), never an ISO
+#         string (FTY-183 acceptance: human date title, no raw YYYY-MM-DD).
 - assertVisible:
     text: "Weight in kg"
+- assertVisible:
+    text: "Today"
 
-# Step 8: Log a weight and save it (FTY-183). The field auto-focuses and is
-#         pre-seeded with the last entry (74.8), so clear it and enter a
+# Step 8: Log a weight and save it (FTY-183). The field auto-focuses on present,
+#         so the keyboard is already up — we type straight into it WITHOUT first
+#         tapping the field, which is the keyboard-up-on-present proof. The field
+#         is pre-seeded with the last entry (74.8), so clear it and enter a
 #         distinctive value (70) whose smoothed headline is unmistakable.
-- tapOn:
-    text: "Weight in kg"
 - eraseText: 8
 - inputText: "70"
 
-# Step 9: Tap the sheet's Log weight button. On the tested platform the sheet is
-#         a modal that hides the Trends card behind it, so this "Log weight" is
-#         unambiguously the submit button, not the card's "+ Log weight" control.
+# Step 9: Dismiss the keyboard so the bottom-anchored submit button clears the
+#         soft keyboard, then tap it by its stable testID. Using the id (not the
+#         "Log weight" text) disambiguates the submit control from the sheet's
+#         own "Log weight" header title and the card's "+ Log weight" trigger.
+- hideKeyboard
 - tapOn:
-    text: "Log weight"
+    id: weight-log-submit
 
 # Step 10: The save round-trips: on success the sheet dismisses (an error would
 #          keep it open with an inline message). Its dismissal is the first proof
