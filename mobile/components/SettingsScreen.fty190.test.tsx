@@ -74,6 +74,13 @@ const PROFILE: ProfileDTO = {
 };
 
 const DERIVED_TARGET: TargetReadModel = {
+  calories: { effective: 1593, derived: 1593, source: "derived" },
+  protein_g: { effective: 128, derived: 128, source: "derived" },
+  carbs_g: { effective: 126, derived: 126, source: "derived" },
+  fat_g: { effective: 64, derived: 64, source: "derived" },
+};
+
+const UNMATCHED_TARGET: TargetReadModel = {
   calories: { effective: 1800, derived: 1800, source: "derived" },
   protein_g: { effective: 128, derived: 128, source: "derived" },
   carbs_g: { effective: 148, derived: 148, source: "derived" },
@@ -105,6 +112,7 @@ const SAFE_AREA_METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
+const CURRENT_DATE = new Date("2026-06-28T12:00:00Z");
 
 beforeEach(() => {
   mockKnownGoalDirection = "loss";
@@ -152,6 +160,7 @@ function renderSettings(
             settingsStore={mockSettingsStore()}
             cadenceStore={mockCadenceStore()}
             notificationsAdapter={mockNotifications()}
+            currentDateFn={() => CURRENT_DATE}
             {...props}
           />
         </ThemeProvider>
@@ -192,17 +201,19 @@ function press(tree: ReactTestRenderer, label: string) {
 }
 
 describe("SettingsScreen FTY-190 copy and affordances", () => {
-  it("updates the collapsed goal row with direction and pace after a saved goal edit", async () => {
+  it("summarizes a loaded active goal with direction and pace before any edit", async () => {
     const createGoalFn = jest.fn().mockResolvedValue(GOAL_TARGET_RESPONSE);
     const getTargetFn = jest.fn().mockResolvedValue(DERIVED_TARGET);
     const tree = renderSettings({ createGoalFn, getTargetFn });
     await act(async () => {});
 
-    expect(() => findPressable(tree, "Goal: Lose")).not.toThrow();
+    expect(() => findPressable(tree, "Goal: Lose · Steady")).not.toThrow();
+    expect(() => findPressable(tree, "Goal: Lose")).toThrow();
+    expect(() => findPressable(tree, "Goal: Details unavailable")).toThrow();
     expect(textContent(tree)).not.toContain("Active");
 
     await act(async () => {
-      press(tree, "Goal: Lose");
+      press(tree, "Goal: Lose · Steady");
     });
     await act(async () => {
       press(tree, "Save goal");
@@ -216,6 +227,17 @@ describe("SettingsScreen FTY-190 copy and affordances", () => {
     expect(mockSetKnownGoalDirection).toHaveBeenCalledWith("loss");
     expect(() => findPressable(tree, "Goal: Lose · Steady")).not.toThrow();
     expect(() => findPressable(tree, "Goal: Loading…")).toThrow();
+  });
+
+  it("does not render a bare direction when loaded target data does not identify pace", async () => {
+    const tree = renderSettings({
+      getTargetFn: jest.fn().mockResolvedValue(UNMATCHED_TARGET),
+    });
+    await act(async () => {});
+
+    expect(() => findPressable(tree, "Goal: Details unavailable")).not.toThrow();
+    expect(() => findPressable(tree, "Goal: Lose")).toThrow();
+    expect(textContent(tree)).not.toContain("Active");
   });
 
   it("renders export and delete account as non-tappable coming-soon disclosures", async () => {

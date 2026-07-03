@@ -50,7 +50,7 @@ appId: com.fatty
 #    through the real Settings path reveals updated targets and updates the row
 #    to direction + pace copy.
 - assertVisible:
-    text: "Goal: Lose"
+    text: "Goal: Details unavailable"
 - tapOn:
     text: "Goal:.*"
 - assertVisible:

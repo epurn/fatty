@@ -85,22 +85,14 @@ import {
 } from '@/theme';
 import type { TargetReadModel } from '@/api/dailySummary';
 import type { ProfileDTO } from '@/api/profile';
+import {
+  goalSummaryDetail,
+  inferLoadedGoalPace,
+} from './settingsGoalSummary';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
-
-const PACE_LABELS: Record<PacePreset, string> = {
-  gentle: 'Gentle',
-  steady: 'Steady',
-  faster: 'Faster',
-};
-
-const DIRECTION_LABELS: Record<GoalDirection, string> = {
-  loss: 'Lose',
-  maintain: 'Maintain',
-  gain: 'Gain',
-};
 
 const APPEARANCE_OPTIONS: readonly { value: ColorSchemeOverride; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -132,14 +124,6 @@ function settingsFormulaCopy(value?: MetabolicFormula | string | null) {
     return SETTINGS_METABOLIC_FORMULA_COPY[value];
   }
   return null;
-}
-
-function goalSummaryDetail(
-  direction: GoalDirection | null,
-  pace: PacePreset | null | undefined,
-): string {
-  if (direction === null) return 'Details unavailable';
-  return `${DIRECTION_LABELS[direction]}${pace && direction !== 'maintain' ? ` · ${PACE_LABELS[pace]}` : ''}`;
 }
 
 /** A client-side validation failure on body-metric input (carries display copy). */
@@ -177,6 +161,8 @@ export interface SettingsScreenProps {
   notificationsAdapter?: NotificationsAdapter;
   /** App version string for the About row. */
   appVersion?: string;
+  /** Injectable clock for deterministic target-derived pace recovery tests. */
+  currentDateFn?: () => Date;
   /**
    * Callback invoked when the user changes the appearance preference so the
    * root ThemeProvider can be updated. Injectable for tests.
@@ -200,6 +186,7 @@ export function SettingsScreen({
   cadenceStore = fileCadenceStore,
   notificationsAdapter = expoNotificationsAdapter,
   appVersion = '1.0.0',
+  currentDateFn = () => new Date(),
   onAppearanceChange,
 }: SettingsScreenProps = {}) {
   const liveSession = useSession();
@@ -323,13 +310,21 @@ export function SettingsScreen({
   // ── Goal edit handlers ────────────────────────────────────────────────────
 
   const currentGoalDirection = goalDirection ?? sessionGoalDirection;
+  const currentGoalPace =
+    goalPace ??
+    inferLoadedGoalPace({
+      direction: currentGoalDirection,
+      profile,
+      target,
+      today: currentDateFn(),
+    });
 
   const openGoalEdit = useCallback(() => {
     setActionError(null);
     setEditDirection(currentGoalDirection ?? 'loss');
-    setEditPace(goalPace ?? 'steady');
+    setEditPace(currentGoalPace ?? 'steady');
     setEditingGoal(true);
-  }, [currentGoalDirection, goalPace]);
+  }, [currentGoalDirection, currentGoalPace]);
 
   // `faster` is a loss-only pace preset; `gain` rejects it (422). Clamp it back
   // to `steady` when leaving `loss` so the editor can never submit the
@@ -602,7 +597,7 @@ export function SettingsScreen({
 
   const goalIsActive = !noTarget && target !== null;
   const goalDetail = goalIsActive
-    ? goalSummaryDetail(currentGoalDirection, goalPace)
+    ? goalSummaryDetail(currentGoalDirection, currentGoalPace)
     : 'Not set';
   const formulaCopy = settingsFormulaCopy(profile?.metabolic_formula);
 
