@@ -43,7 +43,7 @@ import {
   E2E_FAILED_EVENT,
   E2E_FAILED_RETRY_EVENT,
   E2E_GOAL_TARGET_RESPONSE,
-  E2E_ACTIVE_GOAL_DIRECTION,
+  E2E_ACTIVE_GOAL,
   E2E_SAVED_FOOD,
   E2E_SAVED_FOOD_EVENT_ID,
   E2E_SAVED_FOOD_ITEM_ID,
@@ -71,7 +71,7 @@ import { toApiSession } from '@/state/session';
 // eslint-disable-next-line import/first
 import { getProfile } from '@/api/profile';
 // eslint-disable-next-line import/first
-import { createGoal, getActiveGoalDirection, getTarget } from '@/api/goals';
+import { createGoal, getActiveGoal, getTarget } from '@/api/goals';
 // eslint-disable-next-line import/first
 import {
   listTodayLogEvents,
@@ -375,14 +375,15 @@ describe('E2E mock serves the URLs the real API clients request', () => {
   });
 
   // FTY-190 Settings flow: the cold-launched Goal row summarises the returning
-  // user's real goal by its direction, recovered from GET /goal (the FTY-189
-  // direction read model). The mock must answer the exact GET the real
-  // getActiveGoalDirection client makes, or the row falls back to the neutral
-  // "Details unavailable" state settings-fty190.yaml would then fail on.
-  it('getActiveGoalDirection resolves to the seeded loss direction', async () => {
-    const direction = await getActiveGoalDirection(apiSession, mockFetch);
-    expect(direction).toBe(E2E_ACTIVE_GOAL_DIRECTION.direction);
-    expect(direction).toBe('loss');
+  // user's real goal as direction + pace, both recovered from GET /goal (the
+  // FTY-189/FTY-190 read model). The mock must answer the exact GET the real
+  // getActiveGoal client makes, or the row falls back to the neutral "Details
+  // unavailable" state settings-fty190.yaml would then fail on.
+  it('getActiveGoal resolves to the seeded loss/steady goal', async () => {
+    const goal = await getActiveGoal(apiSession, mockFetch);
+    expect(goal).toEqual(E2E_ACTIVE_GOAL);
+    expect(goal?.direction).toBe('loss');
+    expect(goal?.pace).toBe('steady');
   });
 
   it('listTodayLogEvents resolves to an empty timeline (with the ?day= query)', async () => {

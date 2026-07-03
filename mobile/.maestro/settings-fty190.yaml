@@ -9,15 +9,14 @@
 # flow drives the actual Settings screen (the /profile route) against the E2E
 # fetch mock and asserts every FTY-190 acceptance outcome:
 #
-#   1. Collapsed Goal row summarises the returning user's REAL goal by its
-#      direction on a cold load (`Goal: Lose`, recovered from GET /goal — the
-#      FTY-189 direction read model the mock now serves), never the dead
-#      `Active` state the story removes.
-#   2. Editing the goal this session upgrades the row to the full direction +
-#      pace summary (`Goal: Lose · Steady`) once it round-trips to the server —
-#      the headline FTY-190 outcome, proven on the running app. Pace is surfaced
-#      only from the user's own edit (the direction read model carries no pace),
-#      never inferred or cached on-device.
+#   1. Collapsed Goal row summarises the returning user's REAL goal as
+#      direction + pace on a cold load (`Goal: Lose · Steady`, both recovered
+#      server-side from GET /goal — the FTY-189/FTY-190 read model the mock now
+#      serves), never the dead `Active` state the story removes and never a
+#      neutral `Details unavailable`.
+#   2. Editing the goal this session still round-trips to the server and the
+#      collapsed row reflects the saved summary — a regression check that the
+#      goal-edit path keeps working on the running app.
 #   3. Calculation preference reads in plain language (`Higher calorie baseline`),
 #      not the raw formula token.
 #   4. Units and Appearance segmented rows carry visible associated labels.
@@ -46,23 +45,23 @@ appId: com.fatty
 - assertVisible:
     text: "YOU"
 
-# 1. Cold-load Goal row summarises the real goal by its direction — the seeded
-#    loss goal reads `Goal: Lose`, recovered from GET /goal. Never the dead
-#    `Active` state (nor a neutral `Details unavailable`, which would mean the
-#    direction read failed).
+# 1. Cold-load Goal row summarises the real goal as direction + pace — the
+#    seeded loss/steady goal reads `Goal: Lose · Steady`, both recovered from
+#    GET /goal. Never the dead `Active` state (nor a neutral `Details
+#    unavailable`, which would mean the goal read failed).
 - extendedWaitUntil:
     visible:
-      text: "Goal: Lose"
+      text: ".*Goal: Lose · Steady.*"
     timeout: 10000
 - assertNotVisible:
     text: "Goal: Active"
 - assertNotVisible:
     text: "Goal: Details unavailable"
 
-# 2. Edit the goal this session → the row upgrades to direction + pace. Open the
-#    inline editor, keep the loss direction, choose the Steady pace, and save.
+# 2. Editing the goal this session still round-trips to the server. Open the
+#    inline editor, keep the loss direction and Steady pace, and save.
 - tapOn:
-    text: "Goal: Lose"
+    text: ".*Goal: Lose · Steady.*"
 - assertVisible:
     id: goal-edit-card
 - tapOn:
@@ -70,7 +69,7 @@ appId: com.fatty
 - tapOn:
     text: "Save goal"
 # The goal round-trips (POST /goal → mini target-reveal), then the collapsed row
-# reflects the full summary the user just set: `Goal: Lose · Steady`.
+# still reflects the saved summary: `Goal: Lose · Steady`.
 - extendedWaitUntil:
     visible:
       id: mini-target-reveal

@@ -41,7 +41,7 @@ import { Button } from '@/components/ui/Button';
 import {
   getTarget,
   createGoal,
-  getActiveGoalDirection,
+  getActiveGoal,
   setTargetOverride,
   resetTargetOverride,
   GoalsApiError,
@@ -151,7 +151,7 @@ export interface SettingsScreenProps {
   getProfileFn?: typeof getProfile;
   putProfileFn?: typeof putProfile;
   createGoalFn?: typeof createGoal;
-  getActiveGoalDirectionFn?: typeof getActiveGoalDirection;
+  getActiveGoalFn?: typeof getActiveGoal;
   setTargetOverrideFn?: typeof setTargetOverride;
   resetTargetOverrideFn?: typeof resetTargetOverride;
   /** Injectable on-device settings stores. */
@@ -177,7 +177,7 @@ export function SettingsScreen({
   getProfileFn = getProfile,
   putProfileFn = putProfile,
   createGoalFn = createGoal,
-  getActiveGoalDirectionFn = getActiveGoalDirection,
+  getActiveGoalFn = getActiveGoal,
   setTargetOverrideFn = setTargetOverride,
   resetTargetOverrideFn = resetTargetOverride,
   settingsStore = fileAppSettingsStore,
@@ -255,18 +255,16 @@ export function SettingsScreen({
         if (e && e.status === 404) return null;
         throw e;
       }),
-      // The returning user's active goal direction (recovered server-side from
-      // the persisted trajectory, FTY-189) so the collapsed Goal row summarises
-      // the real goal by its direction on a cold load instead of the dead
-      // "Active" state — never depending on an in-session edit. Pace is not
-      // carried by this read model, so it stays absent until the user edits the
-      // goal this session. A load failure degrades to the in-memory cross-screen
-      // direction rather than blocking settings.
-      getActiveGoalDirectionFn(apiSession).catch(() => null),
+      // The returning user's active goal (direction + pace, both recovered
+      // server-side from the persisted trajectory) so the collapsed Goal row
+      // summarises the real goal — direction + pace — on a cold load instead of
+      // depending on an in-session edit. A load failure degrades to the in-memory
+      // cross-screen direction rather than blocking settings.
+      getActiveGoalFn(apiSession).catch(() => null),
       settingsStore.getAppearance(),
       cadenceStore.getCadence(),
     ])
-      .then(([prof, tgt, direction, app, cad]) => {
+      .then(([prof, tgt, goal, app, cad]) => {
         if (!active) return;
         setProfile(prof);
         if (tgt === null) {
@@ -274,8 +272,9 @@ export function SettingsScreen({
         } else {
           setTarget(tgt);
         }
-        if (direction !== null) {
-          setGoalDirection(direction);
+        if (goal !== null) {
+          setGoalDirection(goal.direction);
+          setGoalPace(goal.pace);
         }
         setAppearance(app);
         setCadence(cad ?? DEFAULT_CADENCE);
@@ -295,7 +294,7 @@ export function SettingsScreen({
     session,
     getProfileFn,
     getTargetFn,
-    getActiveGoalDirectionFn,
+    getActiveGoalFn,
     settingsStore,
     cadenceStore,
   ]);
@@ -325,11 +324,12 @@ export function SettingsScreen({
   // ── Goal edit handlers ────────────────────────────────────────────────────
 
   const currentGoalDirection = goalDirection ?? sessionGoalDirection;
-  // Pace is known only from the user's own goal edit this session — it is never
-  // inferred client-side from target numbers, replayed from a local cache, or
-  // carried by the direction-only cold-load read model (`GET /goal`, FTY-189).
-  // It is therefore `null` on a cold load, in which case the row summarises the
-  // real goal by its direction alone rather than inventing a pace.
+  // Pace is recovered from the real goal on a cold load (`GET /goal` returns the
+  // direction + the pace preset, both recovered server-side from the persisted
+  // trajectory) and refreshed from the user's own edit this session — never
+  // inferred client-side from target numbers or replayed from a local cache. It
+  // is `null` only for a maintain goal (no pace) or a legacy goal off the band
+  // grid, in which case the row summarises the real goal by its direction alone.
   const currentGoalPace = goalPace;
 
   const openGoalEdit = useCallback(() => {

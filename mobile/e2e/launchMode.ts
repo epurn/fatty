@@ -33,7 +33,7 @@ import {
   E2E_FIXTURE_MAP,
   E2E_DAILY_SUMMARY,
   E2E_GOAL_TARGET_RESPONSE,
-  E2E_ACTIVE_GOAL_DIRECTION,
+  E2E_ACTIVE_GOAL,
   E2E_CLARIFY_EVENT,
   E2E_CLARIFICATION,
   E2E_CLARIFY_PROCESSING_EVENT,
@@ -451,15 +451,15 @@ export function createE2EMockFetch(): typeof fetch {
     // target reveal (FTY-106). Backs the FTY-182 profile flow: saving a goal
     // edit under the native header resolves to the mini target-reveal, then
     // SettingsScreen refetches GET /target (served below) for the full macros.
-    // GET answers the FTY-189 direction read model so a cold-launched Settings
-    // screen summarises the returning user's real goal by its direction
-    // (`Goal: Lose`, matching the seeded loss trajectory) instead of the dead
-    // "Active" / neutral "Details unavailable" states — the FTY-190 outcome the
-    // settings-fty190.yaml flow proves on the running app. The read model
-    // carries direction only (no pace), exactly like the real contract.
+    // GET answers the FTY-189/FTY-190 read model (direction + pace, both
+    // recovered server-side from the persisted trajectory) so a cold-launched
+    // Settings screen summarises the returning user's real goal as
+    // `Goal: Lose · Steady` (matching the seeded loss/steady trajectory) instead
+    // of the dead "Active" / neutral "Details unavailable" states — the FTY-190
+    // outcome the settings-fty190.yaml flow proves on the running app.
     if (pathEnd.endsWith('/goal')) {
       if (method === 'POST') return json(E2E_GOAL_TARGET_RESPONSE, 201);
-      if (method === 'GET') return json(E2E_ACTIVE_GOAL_DIRECTION);
+      if (method === 'GET') return json(E2E_ACTIVE_GOAL);
     }
 
     // Static fixtures (profile, target).
