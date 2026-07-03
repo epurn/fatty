@@ -162,6 +162,21 @@ describe("WeightLogSheet", () => {
     expect(text).not.toContain("155");
   });
 
+  it("exposes a visible, labeled Cancel control that dismisses the sheet", () => {
+    const onClose = jest.fn();
+    const tree = mount(<WeightLogSheet {...defaultProps({ onClose })} />);
+    const cancel = tree.root.find(
+      (n) =>
+        n.props.accessibilityLabel === "Cancel" &&
+        n.props.accessibilityRole === "button" &&
+        typeof n.props.onPress === "function",
+    );
+    // A 44pt minimum target keeps it reachable for touch and VoiceOver.
+    expect(cancel.props.style.minHeight).toBeGreaterThanOrEqual(44);
+    act(() => cancel.props.onPress());
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("calls onClose when the native sheet is dismissed by gesture", () => {
     const onClose = jest.fn();
     const tree = mount(<WeightLogSheet {...defaultProps({ onClose })} />);

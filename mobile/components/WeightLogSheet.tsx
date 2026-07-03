@@ -17,7 +17,7 @@
  * Privacy: weight values are never emitted to logs or error messages.
  */
 
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useCallback, useState } from "react";
 
 import {
@@ -99,13 +99,25 @@ export function WeightLogSheet({
       accessibilityLabel="Log weight sheet"
     >
       <View testID="weight-log-sheet" style={styles.container}>
-        {/* Header — the native grabber and swipe-to-dismiss replace the old
-            "Cancel" button, so the title carries a human-formatted date. */}
+        {/* Header — the native grabber and swipe-to-dismiss are the primary
+            dismissal, but a visible, labeled "Cancel" control is kept so the
+            affordance is reachable with VoiceOver and by users who don't drag
+            the sheet. The title carries a human-formatted date. */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>Log weight</Text>
-          <Text style={[styles.dateLabel, { color: colors.textSecondary }]}>
-            {formatHumanDate(today, today)}
-          </Text>
+          <View style={styles.headerTitles}>
+            <Text style={[styles.title, { color: colors.text }]}>Log weight</Text>
+            <Text style={[styles.dateLabel, { color: colors.textSecondary }]}>
+              {formatHumanDate(today, today)}
+            </Text>
+          </View>
+          <Pressable
+            onPress={onClose}
+            accessibilityLabel="Cancel"
+            accessibilityRole="button"
+            style={styles.closeButton}
+          >
+            <Text style={[styles.closeLabel, { color: colors.accent }]}>Cancel</Text>
+          </Pressable>
         </View>
 
         <View
@@ -138,7 +150,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "baseline",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  headerTitles: {
+    flex: 1,
+    gap: 2,
   },
   title: {
     fontSize: typeScale.title2,
@@ -146,6 +163,16 @@ const styles = StyleSheet.create({
   },
   dateLabel: {
     fontSize: typeScale.subhead,
+  },
+  closeButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  closeLabel: {
+    fontSize: typeScale.callout,
+    fontWeight: "600",
   },
   inputCard: {
     padding: spacing.base,
