@@ -233,7 +233,7 @@ export function createE2EMockFetch(): typeof fetch {
     // since the value row only renders when the feed carries the entry's items.
     // The clarify/smoke/failed flows serve `items: []` so their rows keep
     // rendering the raw phrase (no value row); only the resolve flow carries a
-    // real items, so resolve.yaml can assert the resolved summary row on-device.
+    // real items, so resolve.yaml can assert both resolved rows on-device.
     // Matched before `/log-events` because the URL suffix is more specific.
     if (pathEnd.endsWith('/log-events/by-date')) {
       if (failedStage === 1) return json([{ event: E2E_FAILED_EVENT, items: [] }]);
@@ -372,8 +372,8 @@ export function createE2EMockFetch(): typeof fetch {
     }
 
     // /daily-summary — returns non-zero intake once the entry is resolved
-    // (the resolve flow's 245-kcal multi-item summary, or the clarify/smoke
-    // 120-kcal coffee).
+    // (the resolve flow's two-item 245-kcal entry, or the clarify/smoke 120-kcal
+    // coffee).
     // The target flow returns the over-budget 2,100-kcal summary so the hero
     // crosses its calorie target and beat 3 arms; the correction flow keeps the
     // pre-edit 140 kcal (its beat rides the PATCH, not the day total).

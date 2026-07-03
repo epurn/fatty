@@ -504,10 +504,11 @@ export const E2E_RERESOLVED_ITEM: DerivedFoodItemDTO = {
 // a pending entry that refreshes to a completed event whose real derived food
 // items (name · kcal · provenance) are served by the by-date feed, so the beat's
 // value row is reachable on the real screen data path — not injected item props.
-// It is intentionally multi-item: the pending skeleton is one row, and the
-// resolved state must stay one event-keyed summary row instead of growing into
-// item-keyed extra rows. Keyed on its own `raw_text` so it never collides with
-// the clarify flow's "coffee" or the failed flow's gibberish.
+// It is intentionally multi-item: the pending skeleton is one row, the first
+// resolved item keeps the event-keyed row for the resolve beat, and the second
+// resolved item must become its own editable row. Keyed on its own `raw_text` so
+// it never collides with the clarify flow's "coffee" or the failed flow's
+// gibberish.
 
 /** The input resolve.yaml submits. Distinct from "coffee" and the gibberish text. */
 export const E2E_RESOLVE_RAW_TEXT = 'greek yogurt and banana';
@@ -543,10 +544,8 @@ export const E2E_RESOLVE_EVENT: LogEventDTO = {
 
 /**
  * The first resolved derived food item the by-date feed carries for the resolve
- * event. ItemTimelineRow summarizes this plus `E2E_RESOLVE_EXTRA_ITEM` as
- * "Greek yogurt and 1 more item, 245 kcal total" — the exact string resolve.yaml
- * asserts, proving the value row is populated from real server data and remains
- * one event-keyed row through a multi-item resolve.
+ * event. Its row keeps the event-keyed test id through the pending→completed
+ * resolve while `E2E_RESOLVE_EXTRA_ITEM` mounts as a normal secondary row.
  */
 export const E2E_RESOLVE_ITEM: DerivedFoodItemDTO = {
   item_type: 'food',
@@ -577,7 +576,7 @@ export const E2E_RESOLVE_ITEM: DerivedFoodItemDTO = {
   is_edited: false,
 };
 
-/** The second resolved item, folded into the one-row resolve summary. */
+/** The second resolved item, rendered as its own row after the resolve beat. */
 export const E2E_RESOLVE_EXTRA_ITEM: DerivedFoodItemDTO = {
   item_type: 'food',
   id: 'e2e-resolve-item-extra-00000000-0000-0000-0000-000000000000',

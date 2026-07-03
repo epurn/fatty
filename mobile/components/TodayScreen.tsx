@@ -89,7 +89,7 @@ import {
 } from "@/state/today";
 import { useScreenActive } from "@/state/useScreenActive";
 import { useSubmitLog, type SubmitLogBridge } from "@/state/useSubmitLog";
-import { useTheme, spacing, typeScale, radius } from "@/theme";
+import { useTheme, spacing, typeScale, radius, reducedMotionDuration } from "@/theme";
 import { entryResolvedHaptic } from "@/theme/haptics";
 
 /** Maximum raw-text length, mirrored from the FTY-030 contract. */
@@ -648,24 +648,31 @@ export function TodayScreen({
           for (const id of fresh) next.add(id);
           return next;
         });
-        // Advance the counter by one per freshly-resolved event so the effect
-        // below fires a distinct soft tap for each — a batch of completions in a
-        // single poll is once-per-event, not one tap total (FTY-181 review).
         setResolveBeatCount((n) => n + fresh.length);
       }
     }
   }
 
-  // Fire one entry-resolve haptic per newly-resolved event. The count advances by
-  // the number of fresh completions each render; firing the delta since the last
-  // run keeps it once-per-event across a multi-completion poll batch, and the ref
-  // — never advanced on the seed render — skips the mount tick.
+  // Fire one entry-resolve haptic per newly-resolved event.
   useEffect(() => {
     const unfired = resolveBeatCount - firedResolveBeats.current;
     if (unfired <= 0) return;
     firedResolveBeats.current = resolveBeatCount;
     for (let i = 0; i < unfired; i++) entryResolvedHaptic();
   }, [resolveBeatCount]);
+
+  useEffect(() => {
+    if (resolveAnimIds.size === 0) return;
+    const timeout = setTimeout(() => {
+      setResolveAnimIds((prev) => {
+        const next = new Set(
+          [...prev].filter((id) => (itemsByEvent[id]?.length ?? 0) === 0),
+        );
+        return next.size === prev.size ? prev : next;
+      });
+    }, reducedMotionDuration);
+    return () => clearTimeout(timeout);
+  }, [itemsByEvent, resolveAnimIds]);
 
   // Barcode scan entry point (FTY-063). Mirrors the text-composer submit flow:
   // dismiss the scanner, show the barcode as a pending optimistic entry, then
@@ -1495,22 +1502,11 @@ function ClusterView({
 
           const items = itemsByEvent[event.id] ?? [];
 
-          // Completed event with items → show item rows (items-forward).
-          // A `proposed` food item is an uncounted label parse (FTY-196): render
-          // it as a "not yet counted" row whose tap reopens the confirm sheet
-          // (FTY-197) — honestly surfaced, never silently counted. A resolved
-          // item taps into the correction/detail sheet.
-          //
-          // A fresh pending→completed resolve must stay one row: the skeleton
-          // was one `ItemTimelineRow`, so a multi-item completion summarizes
-          // additional items into that same event-keyed row instead of mounting
-          // item-keyed extras that would push neighbors down (FTY-180 review).
-          // Already-completed rows that did not just resolve keep the historical
-          // per-item affordances, so each item remains directly editable.
+          // Completed items are item-forward: proposed rows reopen confirm,
+          // resolved rows open correction. Fresh multi-item resolves briefly
+          // summarize extras until the marker clears.
           if (event.status === "completed" && items.length > 0) {
-            // Beat 1 — entry resolve. The value row eases in once on a genuine
-            // pending→resolved transition (never for a `proposed` label parse,
-            // which is an uncounted confirm-me row, not a resolve).
+            // Beat 1 — only genuine pending→resolved counted rows animate.
             const animateResolve = resolveAnimIds.has(event.id);
             const rowTestID = itemTimelineRowTestID(event.id);
             if (animateResolve && items.length > 1) {

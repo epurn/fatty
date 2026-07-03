@@ -550,7 +550,7 @@ describe("TodayScreen resolve in place (FTY-180)", () => {
     }
   });
 
-  it("keeps a multi-item completion in one event-keyed row when resolving from a pending skeleton", async () => {
+  it("restores secondary item rows after a multi-item completion resolves from a pending skeleton", async () => {
     jest.useFakeTimers();
     try {
       const pending = event({ id: "a", raw_text: "Greek yogurt and banana", status: "pending" });
@@ -583,27 +583,23 @@ describe("TodayScreen resolve in place (FTY-180)", () => {
       );
       await act(async () => {});
 
-      const pendingRow = tree.root.findByProps({ testID: "item-timeline-row-a" });
-      const pendingGeometry = resolvedStyle(pendingRow);
       expect(hasProgressbar(tree)).toBe(true);
       expect(textContent(tree)).not.toContain("Greek yogurt and banana");
 
       act(() => jest.advanceTimersByTime(1000));
       await act(async () => {});
 
-      const resolvedRow = tree.root.findByProps({ testID: "item-timeline-row-a" });
-      const resolvedGeometry = resolvedStyle(resolvedRow);
       expect(hasProgressbar(tree)).toBe(false);
-      expect(hasA11yLabel(tree, "Greek yogurt and 1 more item, 255 kcal total")).toBe(true);
-      expect(textContent(tree)).toContain("Greek yogurt + 1");
-      expect(textContent(tree)).not.toContain("Banana");
-      expect(
-        tree.root.findAllByProps({ testID: "item-timeline-row-a-item-b" }),
-      ).toHaveLength(0);
-      expect(resolvedGeometry.minHeight).toBe(pendingGeometry.minHeight);
-      expect(resolvedGeometry.paddingVertical).toBe(pendingGeometry.paddingVertical);
-      expect(resolvedGeometry.paddingHorizontal).toBe(pendingGeometry.paddingHorizontal);
-      expect(resolvedGeometry.gap).toBe(pendingGeometry.gap);
+
+      act(() => jest.advanceTimersByTime(200));
+      await act(async () => {});
+
+      expect(hasA11yLabel(tree, "Greek yogurt, 150 kcal")).toBe(true);
+      expect(hasA11yLabel(tree, "Banana, 105 kcal")).toBe(true);
+      expect(textContent(tree)).toContain("Banana");
+
+      press(tree, "Banana, 105 kcal");
+      expect(hasA11yLabel(tree, "Increase amount")).toBe(true);
     } finally {
       jest.useRealTimers();
     }

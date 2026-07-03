@@ -55,10 +55,14 @@ appId: com.fatty
     text: "Refresh"
 
 # Step 6: Under Reduce Motion the resolve beat is a simple fade — but the value
-#         row still eases in and is present (no spring, no motion, same end state).
+#         rows still appear (no spring, no motion, same end state).
 - extendedWaitUntil:
     visible:
-      text: ".*Greek yogurt and 1 more item, 245 kcal total.*"
+      text: ".*Greek yogurt, 140 kcal.*"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      text: ".*Banana, 105 kcal.*"
     timeout: 10000
 
 # Step 7: The bar sets its value with no spring and the entry counts — the hero

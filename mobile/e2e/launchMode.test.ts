@@ -733,8 +733,8 @@ describe('FTY-183 weight flow: a save upserts the refetched series', () => {
 //
 // Proves the resolve.yaml Maestro flow's data path: a log resolves to a completed
 // pending entry whose real derived items ride the item-forward by-date feed once
-// the event list refreshes, so the entry-resolve beat's one-row multi-item value
-// path is reachable on the real screen data. Keyed on its own raw_text,
+// the event list refreshes, so the entry-resolve beat and secondary item-row
+// path are reachable on the real screen data. Keyed on its own raw_text,
 // independent of the clarify and failed phase machines.
 
 describe('FTY-181 entry-resolve flow: stateful mock transitions', () => {
@@ -760,8 +760,8 @@ describe('FTY-181 entry-resolve flow: stateful mock transitions', () => {
     ).toHaveLength(0);
     await createLogEvent(apiSession, E2E_RESOLVE_RAW_TEXT, undefined, mockFetch);
     // After the log, refresh/poll sees the same event completed while the feed
-    // carries two derived items. Today summarizes those into one event-keyed row
-    // during the pending→completed resolve, not item-keyed extra rows.
+    // carries two derived items. Today keeps the first item on the event-keyed
+    // resolve row and then restores the second item as its own row.
     const entries = await listTodayLogEventEntries(apiSession, '2026-01-01', mockFetch);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.event.id).toBe(E2E_RESOLVE_EVENT_ID);

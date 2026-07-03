@@ -5,22 +5,20 @@
 # only renders when the Today feed carries the entry's derived items — the
 # item-forward `/log-events/by-date` read (FTY-198). This flow proves the beat's
 # value row is reachable on the real screen data path and that a multi-item
-# completion stays one event-keyed row: it drives a log to a visible pending
-# skeleton, refreshes it to a completed two-item entry, and asserts the resolved
-# summary row appears without a second item row.
+# completion keeps the first item on the event-keyed row while restoring the
+# second item as its own editable row after the resolve beat.
 #
 # If the by-date feed were not wired (the pre-fix state the reviewer flagged),
 # `itemsByEvent` would stay empty, the completed entry would render as a
 # status-only placeholder, and the value-row assertion below would go red. If a
-# multi-item resolve grew from one skeleton into item-keyed rows, the "Banana"
-# row absence assertion would go red — exactly the layout-shift gap this flow
-# guards against.
+# multi-item resolve hid secondary rows, the "Banana" assertion would go red —
+# exactly the item-forward/editability regression this flow guards against.
 #
 # Flow:
 #   Today (empty day) → submit "greek yogurt and banana" → the entry appears as
 #   one pending skeleton row → tap Refresh to load the completed event and
-#   item-forward feed → the resolved summary row "Greek yogurt and 1 more item,
-#   245 kcal total" appears on the same row id and the hero counts the entry.
+#   item-forward feed → "Greek yogurt, 140 kcal" appears on the same row id,
+#   "Banana, 105 kcal" appears as the secondary row, and the hero counts both.
 #
 # Bundle ID: Expo prebuild reads this from app.json. Keep this literal so
 # directory-level Maestro runs launch the installed app under test reliably.
@@ -72,23 +70,24 @@ appId: com.fatty
 - tapOn:
     text: "Refresh"
 
-# Step 7: Load-bearing assertion — the resolved value row is visible, populated
-#         from the by-date feed's real derived items. ItemTimelineRow exposes the
-#         collapsed accessibility label "Greek yogurt and 1 more item, 245 kcal
-#         total" (its inner Texts are hidden from the a11y tree, and Android
-#         mirrors it as the content description), so Maestro matches the anchored
-#         label with wildcards. The same row id remains visible after resolve,
-#         and the second item is summarized rather than mounted as its own row.
+# Step 7: Load-bearing assertion — the resolved value rows are visible,
+#         populated from the by-date feed's real derived items. ItemTimelineRow
+#         exposes row accessibility labels (its inner Texts are hidden from the
+#         a11y tree, and Android mirrors them as content descriptions), so
+#         Maestro matches the anchored labels with wildcards. The same first-row
+#         id remains visible after resolve, and the second item mounts normally.
 - extendedWaitUntil:
     visible:
       id: "item-timeline-row-e2e-resolve-event-00000000-0000-0000-0000-000000000000"
     timeout: 10000
 - extendedWaitUntil:
     visible:
-      text: ".*Greek yogurt and 1 more item, 245 kcal total.*"
+      text: ".*Greek yogurt, 140 kcal.*"
     timeout: 10000
-- assertNotVisible:
-    text: ".*Banana, 105 kcal.*"
+- extendedWaitUntil:
+    visible:
+      text: ".*Banana, 105 kcal.*"
+    timeout: 10000
 
 # Step 8: The entry counts — the CalorieHero label includes the 245 kcal the
 #         resolved items contribute (E2E_RESOLVE_SUMMARY), proving the resolved
