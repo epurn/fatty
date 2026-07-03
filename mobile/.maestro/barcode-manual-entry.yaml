@@ -71,8 +71,13 @@ appId: com.fatty
 #         packaged-food starter ("1 serving of "), the running start the fallback
 #         promises. A fallback that only closed the scanner (no seed) would leave
 #         the placeholder composer and fail here.
+#         Surrounding `.*` keeps the selector cross-platform: iOS exposes the
+#         composer as "<accessibilityLabel> <value>" in the accessibility tree
+#         ("Log food or exercise 1 serving of "), Android as the bare value, and
+#         Maestro text matching is a full-string regex — same fix as the
+#         composer selector in failed-parse.yaml / clarify.yaml.
 - assertVisible:
-    text: "1 serving of"
+    text: ".*1 serving of.*"
 
 # Step 8: Prove the composer is genuinely *focused*, not merely pre-filled. The
 #         fallback defers focus until the full-screen scanner Modal has finished
@@ -83,4 +88,4 @@ appId: com.fatty
 #         guards), the text would not append and the closing assertion goes red.
 - inputText: "greek yogurt"
 - assertVisible:
-    text: "1 serving of greek yogurt"
+    text: ".*1 serving of greek yogurt.*"
