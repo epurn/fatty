@@ -97,9 +97,9 @@ const PACE_LABELS: Record<PacePreset, string> = {
 };
 
 const DIRECTION_LABELS: Record<GoalDirection, string> = {
-  loss: 'Lose weight',
-  maintain: 'Maintain weight',
-  gain: 'Gain weight',
+  loss: 'Lose',
+  maintain: 'Maintain',
+  gain: 'Gain',
 };
 
 const APPEARANCE_OPTIONS: readonly { value: ColorSchemeOverride; label: string }[] = [
@@ -107,6 +107,32 @@ const APPEARANCE_OPTIONS: readonly { value: ColorSchemeOverride; label: string }
   { value: 'dark', label: 'Dark' },
   { value: 'system', label: 'System' },
 ];
+
+const SETTINGS_METABOLIC_FORMULA_COPY: Record<
+  MetabolicFormula,
+  { readonly label: string; readonly description: string }
+> = {
+  mifflin_st_jeor_plus5: {
+    label: 'Higher calorie baseline',
+    description:
+      'Uses the Mifflin-St Jeor +5 baseline, giving a slightly higher resting burn estimate.',
+  },
+  mifflin_st_jeor_minus161: {
+    label: 'Lower calorie baseline',
+    description:
+      'Uses the Mifflin-St Jeor -161 baseline, giving a lower resting burn estimate.',
+  },
+};
+
+function settingsFormulaCopy(value?: MetabolicFormula | string | null) {
+  if (
+    value === 'mifflin_st_jeor_plus5' ||
+    value === 'mifflin_st_jeor_minus161'
+  ) {
+    return SETTINGS_METABOLIC_FORMULA_COPY[value];
+  }
+  return null;
+}
 
 /** A client-side validation failure on body-metric input (carries display copy). */
 class InvalidBodyMetric extends Error {}
@@ -561,27 +587,18 @@ export function SettingsScreen({
 
   const isMetric = profile?.units_preference === 'metric';
 
-  // The Goal row must never contradict the targets rendered right below it. A
-  // stored daily target only exists for an *active* goal, so a loaded target
-  // means a goal is in force even though this screen has no goal-read endpoint
-  // to recover its direction/pace on a fresh mount (see the inline edit, which
-  // captures them, and the follow-up read slice noted in the PR). We therefore
-  // show the known direction/pace when the goal was set this session, an honest
-  // "Active" when a target proves a goal exists but its details aren't loaded,
-  // and "Not set" only when there is genuinely no active goal.
+  // The Goal row must never contradict the targets rendered right below it. When
+  // the target proves a goal exists but direction/pace have not hydrated into this
+  // screen, show a neutral loading treatment instead of a misleading concrete
+  // value.
   const goalIsActive = !noTarget && target !== null;
   const goalDetail =
     goalDirection !== null
       ? `${DIRECTION_LABELS[goalDirection]}${goalPace && goalDirection !== 'maintain' ? ` · ${PACE_LABELS[goalPace]}` : ''}`
       : goalIsActive
-        ? 'Active'
+        ? 'Loading…'
         : 'Not set';
-  const goalDetailA11y =
-    goalDirection !== null
-      ? `${DIRECTION_LABELS[goalDirection]}${goalPace && goalDirection !== 'maintain' ? `, ${PACE_LABELS[goalPace]}` : ''}`
-      : goalIsActive
-        ? 'Active'
-        : 'Not set';
+  const formulaCopy = settingsFormulaCopy(profile?.metabolic_formula);
 
   if (!session) {
     return (
@@ -666,7 +683,7 @@ export function SettingsScreen({
           label="Goal"
           value={goalDetail}
           onPress={openGoalEdit}
-          accessibilityLabel={`Goal: ${goalDetailA11y}`}
+          accessibilityLabel={`Goal: ${goalDetail}`}
           accessibilityHint="Double-tap to edit your goal"
           colors={colors}
         />
@@ -974,14 +991,10 @@ export function SettingsScreen({
         <Separator colors={colors} />
         <BodyMetricRow
           label="Calculation preference"
-          value={
-            METABOLIC_FORMULA_OPTIONS.find(
-              (o) => o.value === profile?.metabolic_formula,
-            )?.label ?? '—'
-          }
+          value={formulaCopy?.label ?? '—'}
           onPress={() => openBodyEdit('formula')}
           colors={colors}
-          accessibilityLabel={`Calculation preference: ${METABOLIC_FORMULA_OPTIONS.find((o) => o.value === profile?.metabolic_formula)?.label ?? 'not set'}`}
+          accessibilityLabel={`Calculation preference: ${formulaCopy?.label ?? 'not set'}${formulaCopy ? `. ${formulaCopy.description}` : ''}`}
           accessibilityHint="Double-tap to change your metabolic formula"
         />
       </GroupedCard>
@@ -1080,12 +1093,13 @@ export function SettingsScreen({
         <EditCard colors={colors} testID="formula-edit-card">
           {METABOLIC_FORMULA_OPTIONS.map((opt) => {
             const selected = bodyEditFormula === opt.value;
+            const copy = settingsFormulaCopy(opt.value);
             return (
               <Pressable
                 key={opt.value}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`${opt.label}. ${opt.description}`}
+                accessibilityLabel={`${copy?.label ?? opt.label}. ${copy?.description ?? opt.description}`}
                 onPress={() => setBodyEditFormula(opt.value)}
                 style={[
                   styles.formulaChoice,
@@ -1101,10 +1115,10 @@ export function SettingsScreen({
                     { color: selected ? colors.accent : colors.text },
                   ]}
                 >
-                  {opt.label}
+                  {copy?.label ?? opt.label}
                 </Text>
                 <Text style={[styles.formulaChoiceDesc, { color: colors.textMuted }]}>
-                  {opt.description}
+                  {copy?.description ?? opt.description}
                 </Text>
               </Pressable>
             );
@@ -1235,25 +1249,18 @@ export function SettingsScreen({
       {/* ── DATA & ABOUT ─────────────────────────────────────────────── */}
       <SectionHeader title="DATA & ABOUT" colors={colors} />
       <GroupedCard colors={colors}>
-        <DisclosureRow
+        <ComingSoonDisclosureRow
           label="Export data"
-          onPress={() => {}}
           accessibilityLabel="Export data"
-          accessibilityHint="Data export is not yet available"
           note="Coming soon"
-          disabled
           colors={colors}
         />
         <Separator colors={colors} />
-        <DisclosureRow
+        <ComingSoonDisclosureRow
           label="Delete account"
-          onPress={() => {}}
           accessibilityLabel="Delete account"
-          accessibilityHint="Account deletion is not yet available"
           note="Coming soon"
-          disabled
           colors={colors}
-          destructive
         />
         <Separator colors={colors} />
         <View style={styles.aboutRow}>
@@ -1425,50 +1432,29 @@ function BodyMetricRow({
   );
 }
 
-function DisclosureRow({
+function ComingSoonDisclosureRow({
   label,
-  onPress,
   accessibilityLabel,
-  accessibilityHint,
   colors,
-  destructive = false,
   note,
-  disabled = false,
 }: {
   label: string;
-  onPress: () => void;
   accessibilityLabel: string;
-  accessibilityHint?: string;
   colors: ReturnType<typeof useTheme>['colors'];
-  destructive?: boolean;
   /** Trailing status text (e.g. "Coming soon") for a not-yet-wired row. */
-  note?: string;
-  disabled?: boolean;
+  note: string;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
+    <View
       accessibilityLabel={accessibilityLabel}
-      accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={styles.settingsRow}
+      accessibilityState={{ disabled: true }}
+      style={[styles.settingsRow, styles.comingSoonRow]}
     >
-      <Text
-        style={[
-          styles.rowLabel,
-          { color: destructive ? colors.coral : colors.text },
-        ]}
-      >
+      <Text style={[styles.rowLabel, { color: colors.textMuted }]}>
         {label}
       </Text>
-      {note ? (
-        <Text style={[styles.rowValue, { color: colors.textMuted }]}>{note}</Text>
-      ) : (
-        <Text style={[styles.rowChevron, { color: colors.textMuted }]}>›</Text>
-      )}
-    </Pressable>
+      <Text style={[styles.rowValue, { color: colors.textMuted }]}>{note}</Text>
+    </View>
   );
 }
 
@@ -1750,6 +1736,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
     minHeight: 44,
+  },
+  comingSoonRow: {
+    opacity: 0.72,
   },
   rowLabel: {
     fontSize: typeScale.body,
