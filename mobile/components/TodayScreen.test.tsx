@@ -1738,6 +1738,36 @@ describe("TodayScreen barcode scanning", () => {
     expect(textContent(tree)).toContain("That entry couldn't be saved.");
     expect(textContent(tree)).toContain("Log your first thing");
   });
+
+  it("'Type it instead' dismisses the scanner and focuses the composer (never a dead end)", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const tree = mount(
+      <TodayScreen session={SESSION} load={load} useActive={INACTIVE} />,
+    );
+    await act(async () => {});
+
+    // Spy on the composer TextInput instance's imperative `focus()` — the
+    // never-a-dead-end wiring (FTY-194) raises the keyboard in place.
+    const composer = tree.root.find(
+      (n) =>
+        n.props.accessibilityLabel === "Log food or exercise" &&
+        typeof n.props.onChangeText === "function",
+    );
+    const focusSpy = jest.spyOn(
+      composer.instance as { focus: () => void },
+      "focus",
+    );
+
+    press(tree, "Scan barcode");
+    expect(hasA11yLabel(tree, "Close scanner")).toBe(true);
+
+    press(tree, "Type it instead");
+
+    // The scanner is dismissed and the composer is focused so the user types the
+    // product — the barcode surface never dead-ends into a feed with only "close".
+    expect(hasA11yLabel(tree, "Close scanner")).toBe(false);
+    expect(focusSpy).toHaveBeenCalled();
+  });
 });
 
 // ─── Label capture entry point (FTY-064) ─────────────────────────────────────

@@ -714,6 +714,15 @@ export function TodayScreen({
     [apiSession, submitting, create, setSubmitting, setSubmitError],
   );
 
+  // "Type it instead" from the scanner (FTY-194). The barcode surface must never
+  // dead-end: dismiss the scanner and focus the composer so a failed/unsupported
+  // scan flows straight into natural-language logging. No scan data is carried —
+  // the composer keeps its current (empty) contents, just focused.
+  const handleManualEntry = useCallback(() => {
+    setScannerOpen(false);
+    inputRef.current?.focus();
+  }, []);
+
   // Label capture upload (FTY-064 + FTY-196/197). The backend created and
   // extracted the event in-request; add the returned event to the timeline, then
   // read its label proposal (FTY-196). A legible parse lands as an **uncounted
@@ -1098,6 +1107,7 @@ export function TodayScreen({
         <BarcodeScannerScreen
           onBarcodeScanned={(barcode) => void handleBarcodeScanned(barcode)}
           onClose={() => setScannerOpen(false)}
+          onManualEntry={handleManualEntry}
         />
       </Modal>
 
