@@ -626,7 +626,6 @@ describe("TodayScreen resolve in place (FTY-180)", () => {
         status: "completed",
       });
       let resolveLoad!: (events: readonly LogEventDTO[]) => void;
-      let resolveEntries!: (entries: readonly LogEventEntryDTO[]) => void;
       const load = jest
         .fn()
         .mockResolvedValueOnce([pending])
@@ -634,15 +633,13 @@ describe("TodayScreen resolve in place (FTY-180)", () => {
           new Promise((resolve) => {
             resolveLoad = resolve;
           }),
-        );
+        )
+        .mockResolvedValue([completed]);
       const loadEntries = jest
         .fn()
         .mockResolvedValueOnce([entry(pending, [])])
-        .mockReturnValueOnce(
-          new Promise((resolve) => {
-            resolveEntries = resolve;
-          }),
-        );
+        .mockReturnValueOnce(new Promise<readonly LogEventEntryDTO[]>(() => null))
+        .mockResolvedValue([entry(completed, [foodItem()])]);
       const tree = mount(
         <TodayScreen
           session={SESSION}
@@ -669,11 +666,17 @@ describe("TodayScreen resolve in place (FTY-180)", () => {
       expect(textContent(tree)).not.toContain("grilled cheese sandwich");
       expect(textContent(tree)).not.toContain("150 kcal");
 
-      // The by-date feed then delivers the value, which fades in over the same
-      // row's footprint — the skeleton is gone and the value is shown.
-      await act(async () => {
-        resolveEntries([entry(completed, [foodItem()])]);
-      });
+      // Even past the fade window, the row holds shared geometry until items arrive.
+      act(() => jest.advanceTimersByTime(200));
+      await act(async () => {});
+      expect(hasProgressbar(tree)).toBe(true);
+      expect(textContent(tree)).not.toContain("grilled cheese sandwich");
+      expect(textContent(tree)).not.toContain("150 kcal");
+
+      expect(loadEntries).toHaveBeenCalledTimes(2);
+      act(() => jest.advanceTimersByTime(1000));
+      await act(async () => {});
+      expect(loadEntries).toHaveBeenCalledTimes(3);
       expect(hasProgressbar(tree)).toBe(false);
       expect(hasA11yLabel(tree, "Greek yogurt, 150 kcal")).toBe(true);
     } finally {

@@ -243,14 +243,14 @@ function removeOptimisticEvent(
   });
 }
 
+function hasOwn(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 /**
- * Fold the server's item-forward day feed (FTY-198) into the items map, keyed by
- * event id, so a completed entry's resolved value rows populate from real data
- * (FTY-180) — the entry-resolve beat's real data path (FTY-181). Only events the
- * feed reports with derived items overwrite their entry — an optimistic/saved-food
- * synthetic item (its temp event id is absent from the server feed) is preserved,
- * and a transient empty feed never wipes a row. Returns the previous map unchanged
- * when nothing merged, so a no-op poll causes no re-render.
+ * Fold the item-forward feed into the items map. Derived items replace prior
+ * rows; completed empty entries are recorded as a settled-empty `[]` without
+ * wiping existing items.
  */
 function mergeServerItems(
   prev: Readonly<Record<string, readonly DerivedItem[]>>,
@@ -261,6 +261,12 @@ function mergeServerItems(
     if (entry.items.length > 0) {
       next ??= { ...prev };
       next[entry.event.id] = entry.items;
+    } else if (
+      entry.event.status === "completed" &&
+      !hasOwn(prev, entry.event.id)
+    ) {
+      next ??= { ...prev };
+      next[entry.event.id] = [];
     }
   }
   return next ?? prev;
@@ -568,14 +574,9 @@ export function TodayScreen({
     };
   }, [apiSession, load, reloadKey]);
 
-  // Load the item-forward day feed (FTY-198) and fold each entry's derived items
-  // into `itemsByEvent`, so a completed entry renders its resolved value rows
-  // (name · kcal · source) — the real-data path a pending row's skeleton resolves
-  // into in place (FTY-180) and the entry-resolve beat's real data path (FTY-181).
-  // A read failure is swallowed (like the summary read): the timeline still
-  // renders from the event list, just without the value rows, and the next poll
-  // retries. Runs alongside the event list rather than replacing it so the lean
-  // reconcile/poll/optimistic machinery keeps operating on event envelopes.
+  // Load the item-forward day feed (FTY-198) beside the event list so completed
+  // entries can render value rows from real server data (FTY-180/181). A read
+  // failure is swallowed; the next poll retries without replacing the timeline.
   useEffect(() => {
     if (!apiSession) {
       return;
@@ -665,8 +666,14 @@ export function TodayScreen({
     if (resolveAnimIds.size === 0) return;
     const timeout = setTimeout(() => {
       setResolveAnimIds((prev) => {
-        const next = new Set<string>();
-        return next.size === prev.size ? prev : next;
+        let next: Set<string> | null = null;
+        for (const id of prev) {
+          if (hasOwn(itemsByEvent, id)) {
+            next ??= new Set(prev);
+            next.delete(id);
+          }
+        }
+        return next ?? prev;
       });
     }, reducedMotionDuration);
     return () => clearTimeout(timeout);
@@ -1015,13 +1022,22 @@ export function TodayScreen({
     });
   }, []);
 
-  // Poll while a non-terminal event is visible and the screen is active (the
-  // app is foregrounded and this route is focused). Pausing during an in-flight
-  // create lets that round-trip own the optimistic entry, avoiding a poll/create
-  // race; polling resumes automatically once it settles if work remains.
+  const hasFreshResolveAwaitingItems = useMemo(() => {
+    for (const id of resolveAnimIds) {
+      if (!hasOwn(itemsByEvent, id)) return true;
+    }
+    return false;
+  }, [itemsByEvent, resolveAnimIds]);
+
+  // Poll while an event is in flight, or while a fresh completion is still
+  // waiting for the item-forward feed to settle. That keeps the skeleton on the
+  // same row if `/log-events/by-date` lags the event list.
   const isActive = useActive();
   const shouldPoll =
-    phase === "ready" && isActive && !submitting && hasPendingWork(events);
+    phase === "ready" &&
+    isActive &&
+    !submitting &&
+    (hasPendingWork(events) || hasFreshResolveAwaitingItems);
   useIntervalPolling(shouldPoll, pollIntervalMs, pollOnce);
 
   // Offline-queued captures (FTY-104, harvested onto Today in FTY-147). Each
@@ -1629,19 +1645,8 @@ function ClusterView({
             );
           }
 
-          // A completed event whose value rows have not arrived yet, but which
-          // just resolved from pending/processing this session (resolveAnimIds):
-          // the event-list poll reached `completed` before the by-date item feed
-          // folded its items into `itemsByEvent`. Hold the SAME loading
-          // ItemTimelineRow, keyed by event id — never fall through to the
-          // EntryRow placeholder below — so the pending→resolved transition stays
-          // one in-place fade with zero layout shift, not a swap to a
-          // differently-sized component (FTY-180 review). This hold is bounded:
-          // if the by-date feed lags, fails, or legitimately returns no items,
-          // resolveAnimIds clears after the fade window and the terminal
-          // completed fallback below replaces the shimmer. The shimmer is
-          // labelled as still resolving so VoiceOver never announces a value
-          // that has not appeared yet.
+          // Freshly completed and still waiting on by-date items: hold the same
+          // loading row. Items fade in; confirmed no-items falls through below.
           if (resolveAnimIds.has(event.id)) {
             return (
               <ItemTimelineRow
