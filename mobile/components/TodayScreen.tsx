@@ -315,10 +315,10 @@ export function TodayScreen({
   editItem?: typeof editDerivedItemApi;
   /**
    * Derived food/exercise items keyed by their `log_event_id`, rendered as
-   * editable surfaces beneath each entry (FTY-050). Seeds the map; the item-
-   * forward by-date feed (`loadEntries`, FTY-198) folds real server items in as
-   * events reach `completed`, and edits reconcile the server's returned item back
-   * into this map.
+   * `ItemTimelineRow`s that open the correction sheet on press (FTY-050). Seeds
+   * the map; the item-forward by-date feed (`loadEntries`, FTY-198) folds real
+   * server items in as events reach `completed`, and edits reconcile the
+   * server's returned item back into this map.
    */
   items?: Readonly<Record<string, readonly DerivedItem[]>>;
   useActive?: () => boolean;
