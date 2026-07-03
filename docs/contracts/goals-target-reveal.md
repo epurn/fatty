@@ -65,9 +65,13 @@ fraction implied by the stored start/target weights over the fixed
 `PLANNING_HORIZON_WEEKS` is matched back to the band it was derived from (the
 exact inverse of the pace→trajectory derivation below). Because each band is a
 distinct constant and the trajectory is a pure function of it, the recovery is
-exact. A `maintain` goal has no pace, and a legacy or hand-seeded goal that lands
-on no band returns no pace — both yield `null` so the caller falls back to a
-direction-only summary rather than inventing a pace.
+exact. The inverse is gated on the goal's own geometry: its `target_date` must be
+exactly `start_date + PLANNING_HORIZON_WEEKS`, the same horizon the derivation
+projects the pace over. A `maintain` goal has no pace; a legacy or hand-seeded
+goal that lands on no band, or that spans a different horizon than
+`PLANNING_HORIZON_WEEKS` (dividing its weight gap by the fixed horizon could
+otherwise fabricate a false band match), returns no pace — all yield `null` so
+the caller falls back to a direction-only summary rather than inventing a pace.
 
 ### Pace presets and the evidence-based bands
 
@@ -127,7 +131,8 @@ inputs → identical persisted goal and target.
 `200 OK` with `ActiveGoal`:
 `{ "direction": "loss" | "gain" | "maintain", "pace": "gentle" | "steady" | "faster" | null }`
 — the recovered direction plus the recovered pace preset, nothing else. `pace` is
-`null` for a `maintain` goal or a legacy/off-grid goal that matches no band. No
+`null` for a `maintain` goal or a legacy/off-grid/off-horizon goal that matches no
+band. No
 weight, RMR, TDEE, or target number is exposed. When the caller has no active
 goal, the response is `404` (fail closed; indistinguishable from a cross-user
 attempt — no existence oracle).

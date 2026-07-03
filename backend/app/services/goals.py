@@ -234,12 +234,22 @@ def pace_of(goal: Goal) -> PacePreset | None:
 
     Like :func:`direction_of`, a goal stores no ``pace`` column — the pace was
     consumed exactly once, to derive the trajectory in :func:`derive_trajectory`
-    (``delta = fraction × start_weight × horizon``). This is that derivation's
-    *exact inverse*: recover the weekly fraction from the stored start/target
-    weights over the same fixed :data:`PLANNING_HORIZON_WEEKS`, then match it back
-    to the band it was generated from. Because each band is a distinct constant
-    and the trajectory is a pure function of it, the recovery is exact (not a
-    guess or an ambiguous inference from arbitrary numbers).
+    (``delta = fraction × start_weight × horizon`` over exactly
+    :data:`PLANNING_HORIZON_WEEKS`, which also fixes ``target_date == start_date +
+    horizon``). This is that derivation's *exact inverse*: recover the weekly
+    fraction from the stored start/target weights over the same fixed horizon,
+    then match it back to the band it was generated from. Because each band is a
+    distinct constant and the trajectory is a pure function of it, the recovery is
+    exact (not a guess or an ambiguous inference from arbitrary numbers).
+
+    The inverse is only valid for a trajectory :func:`derive_trajectory` could
+    have produced, so the recovery is gated on the goal's own geometry: its
+    ``target_date`` must be exactly ``start_date + PLANNING_HORIZON_WEEKS``. A
+    legacy or hand-seeded goal on a *different* horizon has a start/target-weight
+    gap that spans some other number of weeks; dividing it by the fixed horizon
+    would fabricate a fraction that can coincidentally land on a band and report a
+    pace the goal never carried. Gating on the horizon means such off-horizon
+    goals return ``None`` instead of a false preset.
 
     ``maintain`` goals have no pace and return ``None``. A trajectory that lands
     on no band — a legacy or hand-seeded goal off the band grid — also returns
@@ -253,6 +263,12 @@ def pace_of(goal: Goal) -> PacePreset | None:
     if direction is GoalDirection.MAINTAIN:
         return None
     if goal.start_weight_kg <= 0:
+        return None
+
+    # Only invert a trajectory this module's derivation could have produced: the
+    # pace fraction was projected over exactly PLANNING_HORIZON_WEEKS, which also
+    # pins target_date. An off-horizon goal fails this guard and stays pace-less.
+    if goal.target_date != goal.start_date + timedelta(weeks=PLANNING_HORIZON_WEEKS):
         return None
 
     fraction = abs(goal.target_weight_kg - goal.start_weight_kg) / (

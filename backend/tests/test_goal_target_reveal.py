@@ -320,6 +320,26 @@ def test_pace_of_is_none_for_off_grid_trajectory(session: Session) -> None:
     assert pace_of(goal) is None
 
 
+def test_pace_of_is_none_for_off_horizon_trajectory(session: Session) -> None:
+    # A goal whose weights still land on a band but whose target_date spans a
+    # *different* horizon than PLANNING_HORIZON_WEEKS was never produced by this
+    # module's derivation. Inverting it over the fixed horizon would fabricate a
+    # pace it never carried, so the horizon guard returns None instead.
+    user = _make_user_with_profile(session)
+    goal, _ = create_goal_with_target(
+        session,
+        user.id,
+        user,
+        GoalTargetRequest(direction=GoalDirection.LOSS, pace=PacePreset.STEADY),
+    )
+    # Weights unchanged (still on the STEADY band), but push the target date off
+    # the fixed horizon so the geometry no longer matches derive_trajectory.
+    assert pace_of(goal) is PacePreset.STEADY
+    goal.target_date = goal.start_date + timedelta(weeks=PLANNING_HORIZON_WEEKS + 4)
+    assert direction_of(goal) is GoalDirection.LOSS
+    assert pace_of(goal) is None
+
+
 def test_read_active_goal_returns_the_active_goal(session: Session) -> None:
     user = _make_user_with_profile(session)
     created, _ = create_goal_with_target(
