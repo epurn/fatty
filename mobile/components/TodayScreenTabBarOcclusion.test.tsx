@@ -56,25 +56,35 @@ beforeEach(() => mockReduceMotion(false));
 
 afterEach(cleanupTrees);
 
-// The FTY-185 occlusion contract has two halves. `_layout.test.tsx` proves the
+// The FTY-185 occlusion contract has three parts. `_layout.test.tsx` proves the
 // first: the tab bar is a real, full-footprint expo-blur `.ultraThin` overlay
 // (position:absolute, transparent background, BlurView `absoluteFill` at
-// intensity 100). This suite proves the second: the Today timeline actually
-// scrolls *beneath* that overlay. Together they are the structural proof that
-// scrolled content is dimmed/occluded under the bar rather than reading fully
-// legible through the labels — the part machine-assertable in the JS harness.
-// (True pixel-level legibility through a native blur is not observable in Jest
-// or Maestro; the accessibility tree carries no rendered pixels.)
-describe("TodayScreen tab-bar occlusion clearance (FTY-185)", () => {
-  it("reserves bottom clearance so timeline content scrolls beneath the floating tab bar", async () => {
+// intensity 100). This suite proves the other two: (a) the Today timeline
+// actually reserves clearance to scroll *beneath* that overlay, and (b) an
+// app-drawn dimming fade (`TabBarScrim`) actually renders over the bottom of the
+// screen so scrolled content visibly fades/dims into the surface — the story's
+// "text is not legible through the tab labels" requirement — independent of the
+// native blur, which the JS/Maestro harness cannot observe. The scrim is drawn
+// by the app (plain Views with a surface-colour opacity ramp), so unlike the
+// native blur its fade IS machine-assertable here.
+describe("TodayScreen tab-bar occlusion (FTY-185)", () => {
+  // Light-mode surface is the useTheme() default when no ThemeProvider wraps the
+  // tree (as in these mounts); assert the fade paints in that colour.
+  const SURFACE_LIGHT = "#F2F2F7";
+
+  function mountToday() {
     const load = jest
       .fn()
       .mockResolvedValue([
         event({ id: "a", raw_text: "Oatmeal", status: "completed" }),
       ]);
-    const tree = mount(
+    return mount(
       <TodayScreen session={SESSION} load={load} useActive={INACTIVE} />,
     );
+  }
+
+  it("reserves bottom clearance so timeline content scrolls beneath the floating tab bar", async () => {
+    const tree = mountToday();
     await act(async () => {});
 
     const scroll = tree.root.find((n) => n.props.testID === "today-screen");
@@ -97,5 +107,57 @@ describe("TodayScreen tab-bar occlusion clearance (FTY-185)", () => {
     expect(contentStyle.paddingBottom as number).toBeGreaterThanOrEqual(
       safeAreaBottom + MIN_TAB_BAR_CLEARANCE,
     );
+  });
+
+  it("renders a dimming fade that ramps transparent→opaque surface so content is not legible through the tab labels", async () => {
+    const tree = mountToday();
+    await act(async () => {});
+
+    // The fade overlay must exist, cover the bottom of the screen, and never
+    // intercept touches/scroll.
+    const scrim = tree.root.find((n) => n.props.testID === "tab-bar-scrim");
+    expect(scrim.props.pointerEvents).toBe("none");
+    const scrimStyle = StyleSheet.flatten(scrim.props.style) as {
+      position?: string;
+      bottom?: number;
+      height?: number;
+    };
+    expect(scrimStyle.position).toBe("absolute");
+    expect(scrimStyle.bottom).toBe(0);
+    // The fade spans the reserved clearance zone (safe-area bottom + surplus),
+    // so content dims across exactly the region it scrolls through under the bar.
+    expect(scrimStyle.height as number).toBeGreaterThanOrEqual(34 + 49);
+
+    // Each band's surface-colour opacity is the actual dimming applied to the
+    // content behind it. Collect them top→bottom.
+    const bands = tree.root.findAll(
+      (n) =>
+        // Host View instances only (`type` is the string tag) — a composite
+        // `View` and its host child both carry the testID, so match one.
+        typeof n.type === "string" &&
+        typeof n.props.testID === "string" &&
+        n.props.testID.startsWith("tab-bar-scrim-band-"),
+    );
+    expect(bands.length).toBeGreaterThan(1);
+
+    const opacities = bands.map((band) => {
+      const style = StyleSheet.flatten(band.props.style) as {
+        backgroundColor?: string;
+        opacity?: number;
+      };
+      // The fade dims *toward the surface* — every band paints the screen
+      // colour, so content reads as fading into the background, not tinting.
+      expect(style.backgroundColor).toBe(SURFACE_LIGHT);
+      return style.opacity as number;
+    });
+
+    // A genuine fade: fully transparent at the top (content legible), fully
+    // opaque surface at the bottom (content faded out under the tab labels),
+    // increasing monotonically in between.
+    expect(opacities[0]).toBe(0);
+    expect(opacities[opacities.length - 1]).toBe(1);
+    for (let i = 1; i < opacities.length; i += 1) {
+      expect(opacities[i]).toBeGreaterThan(opacities[i - 1]);
+    }
   });
 });

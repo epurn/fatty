@@ -33,7 +33,7 @@ import {
   saveFood as saveFoodApi,
   searchSavedFoods as searchSavedFoodsApi,
 } from "@/api/savedFoods";
-import { AppIcon, ScreenHeader } from "@/components/ui";
+import { AppIcon, ScreenHeader, TabBarScrim } from "@/components/ui";
 import { BarcodeScannerScreen } from "@/components/BarcodeScannerScreen";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DailySummary } from "@/components/DailySummary";
@@ -379,6 +379,14 @@ export function TodayScreen({
           onRetry={() => void refresh()}
         />
       </ScrollView>
+
+      {/* FTY-185: the dimming fade that occludes scrolled timeline content as it
+          slides beneath the floating, blurred tab bar. The native blur alone
+          doesn't guarantee content is illegible through the tab labels, so this
+          app-drawn gradient fades the last rows into the surface. Its height
+          matches the reserved bottom clearance above so the fade spans exactly
+          the zone content scrolls through before it reaches the bar. */}
+      <TabBarScrim height={insets.bottom + 96} />
 
       <TodaySheetHost
         apiSession={apiSession}
