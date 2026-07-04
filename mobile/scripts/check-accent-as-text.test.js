@@ -103,6 +103,12 @@ describe("accent-text-baseline.json", () => {
     expect(baselinedFiles).not.toContain("components/ConfirmParsedValuesSheet.tsx");
   });
 
+  it("does not baseline components/TrendsScreen.tsx — drained by FTY-209", () => {
+    expect(
+      baseline.sites.some((site) => site.file === "components/TrendsScreen.tsx"),
+    ).toBe(false);
+  });
+
   it("does not baseline the correction-owned files drained by FTY-208 — they are fixed, not deferred", () => {
     const baselinedFiles = baseline.sites.map((site) => site.file);
     expect(baselinedFiles).not.toContain("components/CorrectionSheet.tsx");
@@ -120,7 +126,6 @@ describe("accent-text-baseline.json", () => {
   it("enumerates the currently-known per-screen accent-as-text sites", () => {
     const byFile = Object.fromEntries(baseline.sites.map((site) => [site.file, site.count]));
     expect(byFile).toEqual({
-      "components/TrendsScreen.tsx": 1,
       "components/onboarding/MeasurementsStep.tsx": 1,
     });
   });
