@@ -5,14 +5,14 @@ const fs = require("fs");
 const {
   scanSource,
   evaluate,
-  loadBaselineCounts,
+  loadBaselineSites,
   scanTree,
   MOBILE_ROOT,
   DEFAULT_BASELINE_PATH,
 } = require("./check-font-size-literal");
 
-// A file with no baseline entry (count defaults to 0), so any numeric
-// fontSize site is a fresh violation.
+// A file with no baseline entry, so any numeric fontSize site is a fresh
+// violation.
 const UNLISTED = "components/Unlisted.tsx";
 
 describe("scanSource — direction of the guard", () => {
@@ -51,22 +51,59 @@ describe("scanSource — direction of the guard", () => {
   it("ignores unrelated numeric properties (e.g. lineHeight, width)", () => {
     expect(scanSource("const s = { lineHeight: 20, width: 44 };", UNLISTED)).toHaveLength(0);
   });
+
+  it("identifies each site by its enclosing style-key context and value", () => {
+    const sites = scanSource(
+      "const styles = StyleSheet.create({ axisLabel: { fontSize: 11 } });",
+      UNLISTED,
+    );
+    expect(sites).toEqual([{ line: 1, context: "styles.axisLabel", sizes: [11] }]);
+  });
 });
 
-describe("evaluate — per-file baseline count", () => {
-  const baseline = new Map([["components/Foo.tsx", 1]]);
+describe("evaluate — site-based baseline matching", () => {
+  // components/Foo.tsx has exactly one known site: `styles.title` at size 20.
+  const baseline = new Map([["components/Foo.tsx", new Map([["styles.title@20", 1]])]]);
 
-  it("exempts a file's first N sites (source order)", () => {
-    expect(evaluate("components/Foo.tsx", "const a = { fontSize: 20 };", baseline)).toEqual([]);
+  it("exempts a baselined site (same context and value)", () => {
+    expect(
+      evaluate(
+        "components/Foo.tsx",
+        "const styles = { title: { fontSize: 20 } };",
+        baseline,
+      ),
+    ).toEqual([]);
   });
 
-  it("flags sites beyond the baselined count", () => {
-    const extra = evaluate(
+  it("flags a NEW literal inserted into a file that already has a baseline entry", () => {
+    const fresh = evaluate(
       "components/Foo.tsx",
-      "const a = { fontSize: 20 };\nconst b = { fontSize: 16 };",
+      "const styles = { title: { fontSize: 20 }, badge: { fontSize: 12 } };",
       baseline,
     );
-    expect(extra).toHaveLength(1);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].context).toBe("styles.badge");
+  });
+
+  it("flags a new literal even when it duplicates a baselined site exactly", () => {
+    // Both sites key as `rows.s@20`, but the baseline holds only one entry —
+    // the multiset match lets the first consume it and fails the second.
+    const fresh = evaluate(
+      "components/Foo.tsx",
+      "const rows = [{ s: { fontSize: 20 } }, { s: { fontSize: 20 } }];",
+      new Map([["components/Foo.tsx", new Map([["rows.s@20", 1]])]]),
+    );
+    expect(fresh).toHaveLength(1);
+  });
+
+  it("flags a baselined context whose size changed (baseline never grows)", () => {
+    const fresh = evaluate(
+      "components/Foo.tsx",
+      "const styles = { title: { fontSize: 24 } };",
+      baseline,
+    );
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].sizes).toEqual([24]);
   });
 
   it("flags any numeric fontSize site in a file with no baseline entry", () => {
@@ -78,7 +115,7 @@ describe("font-size-baseline.json", () => {
   const baseline = JSON.parse(fs.readFileSync(DEFAULT_BASELINE_PATH, "utf8"));
 
   it("does not baseline the shared-owned sites fixed in this story", () => {
-    const baselinedFiles = new Set(baseline.sites.map((site) => site.file));
+    const baselinedFiles = new Set(baseline.files.map((entry) => entry.file));
     expect(baselinedFiles.has("components/CalorieHero.tsx")).toBe(false);
     expect(baselinedFiles.has("components/DailySummary.tsx")).toBe(false);
     expect(baselinedFiles.has("components/MacroTier.tsx")).toBe(false);
@@ -88,7 +125,9 @@ describe("font-size-baseline.json", () => {
   });
 
   it("enumerates the currently-known per-screen numeric fontSize sites", () => {
-    const byFile = Object.fromEntries(baseline.sites.map((site) => [site.file, site.count]));
+    const byFile = Object.fromEntries(
+      baseline.files.map((entry) => [entry.file, entry.sites.length]),
+    );
     expect(byFile).toEqual({
       "components/ConfirmParsedValuesSheet.tsx": 1,
       "components/EntryRow.tsx": 7,
@@ -109,14 +148,34 @@ describe("font-size-baseline.json", () => {
     });
   });
 
+  it("pins every baselined site by context and value, not by count", () => {
+    for (const entry of baseline.files) {
+      expect(entry.sites.length).toBeGreaterThan(0);
+      for (const site of entry.sites) {
+        expect(typeof site.context).toBe("string");
+        expect(site.context.length).toBeGreaterThan(0);
+        expect(Array.isArray(site.sizes)).toBe(true);
+        expect(site.sizes.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("covers the live tree exactly — make verify passes with the baseline present", () => {
     // The committed baseline is a snapshot of the guard's own output on the live
     // tree, so every remaining numeric fontSize site is exempt and the guard is
-    // green. Regressions (a live count that drifts from the baseline) fail here.
+    // green. Drift in either direction (a new site, or a stale entry for a
+    // removed site) fails here.
     const live = scanTree(MOBILE_ROOT);
-    const baselineCounts = Object.fromEntries(
-      [...loadBaselineCounts(DEFAULT_BASELINE_PATH).entries()].map(([f, c]) => [f, c]),
+    const baselined = Object.fromEntries(
+      baseline.files.map((entry) => [entry.file, entry.sites]),
     );
-    expect(live).toEqual(baselineCounts);
+    expect(live).toEqual(baselined);
+  });
+
+  it("loads into a per-file multiset keyed by context@sizes", () => {
+    const byFile = loadBaselineSites(DEFAULT_BASELINE_PATH);
+    const entryRow = byFile.get("components/EntryRow.tsx");
+    expect(entryRow).toBeDefined();
+    expect([...entryRow.values()].reduce((a, b) => a + b, 0)).toBe(7);
   });
 });

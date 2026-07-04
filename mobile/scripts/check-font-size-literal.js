@@ -8,18 +8,21 @@
 // and walks the value side of every `fontSize:` property looking for a
 // numeric-literal leaf (including inside a ternary / `&&` / `||` / `??`).
 //
-// Baseline-aware: `font-size-baseline.json` pins a per-file COUNT of
-// pre-existing numeric fontSize sites (FTY-192) so the guard can be adopted
-// without a flag-day rewrite. Each file's first N sites (in source order) are
-// exempt, where N is that file's baseline count; anything beyond N —
-// including a brand-new file with no baseline entry — fails. Per-screen
-// stories (FTY-213-217) drain their file's count to 0 (and delete the entry)
-// as they route the literal through typeScale; the guard is fully strict once
-// this list is empty.
+// Baseline-aware and SITE-BASED: `font-size-baseline.json` pins each
+// pre-existing numeric fontSize site (FTY-192) by its enclosing style-key
+// context (e.g. `styles.axisLabel`) plus its numeric value(s), so the guard
+// can be adopted without a flag-day rewrite. Sites are matched per file as a
+// multiset of `context@sizes` keys: a scanned site is exempt only if the
+// file's baseline still has an unconsumed entry with the same context and
+// value. Any NEW literal — a new style key, a changed value, a duplicate of
+// an existing site, or any site in an unlisted file — fails. Per-screen
+// stories (FTY-213-217) delete a file's site entries (and then the file
+// entry) as they route each literal through typeScale; the guard is fully
+// strict once this list is empty.
 //
 // Usage:
 //   node scripts/check-font-size-literal.js          # verify; exit 1 on new sites
-//   node scripts/check-font-size-literal.js --list    # print the live per-file counts
+//   node scripts/check-font-size-literal.js --list    # print the live per-file sites
 "use strict";
 
 const fs = require("fs");
@@ -63,16 +66,19 @@ function scriptKindFor(fileName) {
   return ts.ScriptKind.JS;
 }
 
-// Walks the value side of a `fontSize: <expr>` property looking for a leaf
-// numeric literal (e.g. `fontSize: 20`, but not `fontSize: typeScale.body`).
-// Unwraps parentheses and descends into ternary / logical / nullish branches.
-function referencesNumericFontSize(node) {
-  if (!node) return false;
+// Collects every leaf numeric literal reachable from a `fontSize: <expr>`
+// value (e.g. `fontSize: 20`, both arms of `selected ? 20 : 16`, the operands
+// of `&&` / `||` / `??`) — but not token references like `typeScale.body`.
+// Returns the values found, [] when the expression holds no numeric literal.
+function collectNumericFontSizes(node, out = []) {
+  if (!node) return out;
   if (ts.isParenthesizedExpression(node)) {
-    return referencesNumericFontSize(node.expression);
+    return collectNumericFontSizes(node.expression, out);
   }
   if (ts.isConditionalExpression(node)) {
-    return referencesNumericFontSize(node.whenTrue) || referencesNumericFontSize(node.whenFalse);
+    collectNumericFontSizes(node.whenTrue, out);
+    collectNumericFontSizes(node.whenFalse, out);
+    return out;
   }
   if (ts.isBinaryExpression(node)) {
     const op = node.operatorToken.kind;
@@ -81,11 +87,13 @@ function referencesNumericFontSize(node) {
       op === ts.SyntaxKind.BarBarToken ||
       op === ts.SyntaxKind.QuestionQuestionToken
     ) {
-      return referencesNumericFontSize(node.left) || referencesNumericFontSize(node.right);
+      collectNumericFontSizes(node.left, out);
+      collectNumericFontSizes(node.right, out);
     }
-    return false;
+    return out;
   }
-  return ts.isNumericLiteral(node);
+  if (ts.isNumericLiteral(node)) out.push(Number(node.text));
+  return out;
 }
 
 // True when the property key is literally `fontSize` (identifier or string
@@ -96,8 +104,35 @@ function nameIsFontSize(name) {
   return false;
 }
 
-// Scan a single source string; returns the 1-based line numbers of every
-// numeric-fontSize site, in source order.
+// The site's identity within its file: the chain of enclosing property /
+// variable names, outermost first (e.g. `styles.axisLabel`). Line numbers are
+// too brittle for a baseline (any edit above shifts them); the style-key path
+// survives unrelated edits while still distinguishing sites.
+function contextOf(node) {
+  const names = [];
+  let cur = node.parent;
+  while (cur) {
+    if (
+      ts.isPropertyAssignment(cur) &&
+      (ts.isIdentifier(cur.name) || ts.isStringLiteral(cur.name))
+    ) {
+      names.unshift(cur.name.text);
+    }
+    if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name)) {
+      names.unshift(cur.name.text);
+    }
+    cur = cur.parent;
+  }
+  return names.join(".") || "<anonymous>";
+}
+
+// A stable multiset key for one site: enclosing context + sorted values.
+function siteKey(site) {
+  return `${site.context}@${[...site.sizes].sort((a, b) => a - b).join(",")}`;
+}
+
+// Scan a single source string; returns every numeric-fontSize site, in source
+// order, as { line, context, sizes }.
 function scanSource(code, fileName) {
   const name = fileName || "virtual.tsx";
   const sourceFile = ts.createSourceFile(
@@ -107,37 +142,59 @@ function scanSource(code, fileName) {
     /* setParentNodes */ true,
     scriptKindFor(name),
   );
-  const positions = [];
+  const sites = [];
   function visit(node) {
-    if (
-      ts.isPropertyAssignment(node) &&
-      nameIsFontSize(node.name) &&
-      referencesNumericFontSize(node.initializer)
-    ) {
-      positions.push(node.getStart(sourceFile));
+    if (ts.isPropertyAssignment(node) && nameIsFontSize(node.name)) {
+      const sizes = collectNumericFontSizes(node.initializer);
+      if (sizes.length) {
+        sites.push({
+          pos: node.getStart(sourceFile),
+          line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
+          context: contextOf(node),
+          sizes,
+        });
+      }
     }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
-  positions.sort((a, b) => a - b);
-  return positions.map((pos) => sourceFile.getLineAndCharacterOfPosition(pos).line + 1);
+  sites.sort((a, b) => a.pos - b.pos);
+  return sites.map(({ line, context, sizes }) => ({ line, context, sizes }));
 }
 
-function loadBaselineCounts(baselinePath) {
+// { relFile -> Map<siteKey, count> } from the committed baseline.
+function loadBaselineSites(baselinePath) {
   const data = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
-  const counts = new Map();
-  for (const site of data.sites) {
-    counts.set(site.file, site.count);
+  const byFile = new Map();
+  for (const entry of data.files) {
+    const keys = new Map();
+    for (const site of entry.sites) {
+      const key = siteKey(site);
+      keys.set(key, (keys.get(key) ?? 0) + 1);
+    }
+    byFile.set(entry.file, keys);
   }
-  return counts;
+  return byFile;
 }
 
-// Given a file's relative path + source and the baseline map, return the line
-// numbers of the sites that EXCEED the file's baselined count (i.e. new debt).
-function evaluate(relFile, code, baselineCounts) {
-  const lines = scanSource(code, relFile);
-  const allowed = baselineCounts.get(relFile) ?? 0;
-  return lines.slice(allowed);
+// Given a file's relative path + source and the baseline map, return the
+// sites NOT covered by the file's baseline entries (i.e. new debt). Each
+// scanned site consumes at most one baseline entry with the same context and
+// value, so an inserted literal fails even in a file that has a baseline
+// entry — including an exact duplicate of an existing site.
+function evaluate(relFile, code, baselineSites) {
+  const remaining = new Map(baselineSites.get(relFile) ?? []);
+  const fresh = [];
+  for (const site of scanSource(code, relFile)) {
+    const key = siteKey(site);
+    const available = remaining.get(key) ?? 0;
+    if (available > 0) {
+      remaining.set(key, available - 1);
+    } else {
+      fresh.push(site);
+    }
+  }
+  return fresh;
 }
 
 function collectFiles(root) {
@@ -161,44 +218,50 @@ function relOf(abs) {
   return path.relative(MOBILE_ROOT, abs).split(path.sep).join("/");
 }
 
-// { rel -> count } of every numeric-fontSize site in the live tree (for
-// --list / baseline regeneration).
+// { rel -> [{ context, sizes }] } of every numeric-fontSize site in the live
+// tree (for --list / baseline regeneration).
 function scanTree(root) {
-  const counts = {};
+  const files = {};
   for (const abs of collectFiles(root)) {
-    const lines = scanSource(fs.readFileSync(abs, "utf8"), relOf(abs));
-    if (lines.length) counts[relOf(abs)] = lines.length;
+    const sites = scanSource(fs.readFileSync(abs, "utf8"), relOf(abs));
+    if (sites.length) {
+      files[relOf(abs)] = sites.map(({ context, sizes }) => ({ context, sizes }));
+    }
   }
-  return counts;
+  return files;
 }
 
 function main(argv) {
   if (argv.includes("--list")) {
-    const counts = scanTree(MOBILE_ROOT);
-    console.log(JSON.stringify(counts, null, 2));
+    const files = scanTree(MOBILE_ROOT);
+    console.log(JSON.stringify(files, null, 2));
     return;
   }
 
-  const baselineCounts = loadBaselineCounts(DEFAULT_BASELINE_PATH);
+  const baselineSites = loadBaselineSites(DEFAULT_BASELINE_PATH);
   const failures = [];
   for (const abs of collectFiles(MOBILE_ROOT)) {
     const rel = relOf(abs);
-    const extra = evaluate(rel, fs.readFileSync(abs, "utf8"), baselineCounts);
-    if (extra.length) failures.push({ file: rel, lines: extra });
+    const fresh = evaluate(rel, fs.readFileSync(abs, "utf8"), baselineSites);
+    if (fresh.length) failures.push({ file: rel, fresh });
   }
 
   if (failures.length) {
     console.error(
-      "✖ fontSize guard: numeric fontSize literal used beyond the tracked baseline.",
+      "✖ fontSize guard: numeric fontSize literal not covered by the tracked baseline.",
     );
     console.error(
       "  Reference a theme/typography.ts typeScale token instead (e.g. typeScale.body).",
     );
     for (const f of failures) {
-      console.error(`  ${f.file}: new numeric fontSize site(s) at line(s) ${f.lines.join(", ")}`);
+      for (const site of f.fresh) {
+        console.error(
+          `  ${f.file}:${site.line} — fontSize ${site.sizes.join("/")} in \`${site.context}\` has no baseline entry`,
+        );
+      }
     }
     console.error(
-      "  If a new pre-existing site is intentional, bump its count in font-size-baseline.json.",
+      "  The baseline (font-size-baseline.json) only shrinks: route the size through typeScale rather than adding an entry.",
     );
     process.exitCode = 1;
     return;
@@ -214,10 +277,11 @@ if (require.main === module) {
 module.exports = {
   MOBILE_ROOT,
   DEFAULT_BASELINE_PATH,
-  referencesNumericFontSize,
+  collectNumericFontSizes,
+  siteKey,
   scanSource,
   evaluate,
-  loadBaselineCounts,
+  loadBaselineSites,
   collectFiles,
   scanTree,
 };

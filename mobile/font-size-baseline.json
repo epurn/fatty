@@ -1,86 +1,366 @@
 {
-  "version": 1,
-  "description": "Baseline allowlist for scripts/check-font-size-literal.js — pre-existing numeric fontSize sites, seeded at FTY-192 by snapshotting the guard's own output on the live tree. Each entry is a per-file count of numeric fontSize sites still present in that file, in source order; the guard exempts a file's first `count` sites and fails on anything beyond that. Per-screen application stories (FTY-213-217) drain their file's count to 0 and delete the entry as they route the literal through typeScale, and adopt DisplayText for their headers; the guard is fully strict once this list is empty.",
-  "sites": [
+  "version": 2,
+  "description": "Baseline allowlist for scripts/check-font-size-literal.js — the currently-known numeric fontSize sites, seeded at FTY-192 by snapshotting the guard's own output on the live tree. Each file entry lists its pre-existing sites by enclosing style-key context plus numeric value(s); the guard matches scanned sites against these as a per-file multiset, so any NEW literal — a new style key, a changed value, a duplicate of a known site, or a site in an unlisted file — fails. Per-screen application stories (FTY-213-217) delete a site entry (and eventually the file entry) as they route the literal through typeScale and adopt DisplayText for their headers; the guard is fully strict once this list is empty.",
+  "files": [
     {
       "file": "components/ConfirmParsedValuesSheet.tsx",
-      "count": 1,
-      "reason": "mobile-today lane — FTY-213."
+      "reason": "mobile-today lane — FTY-213.",
+      "sites": [
+        {
+          "context": "styles.stepperButtonLabel",
+          "sizes": [
+            22
+          ]
+        }
+      ]
     },
     {
       "file": "components/EntryRow.tsx",
-      "count": 7,
-      "reason": "mobile-today lane — FTY-213."
+      "reason": "mobile-today lane — FTY-213.",
+      "sites": [
+        {
+          "context": "failedHint",
+          "sizes": [
+            13
+          ]
+        },
+        {
+          "context": "failedActionText",
+          "sizes": [
+            14
+          ]
+        },
+        {
+          "context": "text",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "truncationHint",
+          "sizes": [
+            12
+          ]
+        },
+        {
+          "context": "addDetailChipText",
+          "sizes": [
+            13
+          ]
+        },
+        {
+          "context": "uncounted",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "meta",
+          "sizes": [
+            13
+          ]
+        }
+      ]
     },
     {
       "file": "components/StatusIcon.tsx",
-      "count": 1,
-      "reason": "mobile-today lane — FTY-213."
+      "reason": "mobile-today lane — FTY-213.",
+      "sites": [
+        {
+          "context": "styles.icon",
+          "sizes": [
+            18
+          ]
+        }
+      ]
     },
     {
       "file": "components/TypeaheadSuggestionBar.tsx",
-      "count": 1,
-      "reason": "mobile-today lane — FTY-213."
+      "reason": "mobile-today lane — FTY-213.",
+      "sites": [
+        {
+          "context": "chipText",
+          "sizes": [
+            14
+          ]
+        }
+      ]
     },
     {
       "file": "components/today/SignInRequired.tsx",
-      "count": 1,
-      "reason": "mobile-today lane — FTY-213."
+      "reason": "mobile-today lane — FTY-213.",
+      "sites": [
+        {
+          "context": "styles.centerTitle",
+          "sizes": [
+            24
+          ]
+        }
+      ]
     },
     {
       "file": "components/CorrectionSheet.tsx",
-      "count": 1,
-      "reason": "mobile-correction lane — FTY-214."
+      "reason": "mobile-correction lane — FTY-214.",
+      "sites": [
+        {
+          "context": "styles.leverChevron",
+          "sizes": [
+            20
+          ]
+        }
+      ]
     },
     {
       "file": "components/correction/AdvancedLeverRow.tsx",
-      "count": 1,
-      "reason": "mobile-correction lane — FTY-214."
+      "reason": "mobile-correction lane — FTY-214.",
+      "sites": [
+        {
+          "context": "styles.leverChevron",
+          "sizes": [
+            20
+          ]
+        }
+      ]
     },
     {
       "file": "components/correction/AmountStepper.tsx",
-      "count": 1,
-      "reason": "mobile-correction lane — FTY-214."
+      "reason": "mobile-correction lane — FTY-214.",
+      "sites": [
+        {
+          "context": "styles.stepperButtonLabel",
+          "sizes": [
+            22
+          ]
+        }
+      ]
     },
     {
       "file": "components/correction/ChangeMatchPanel.tsx",
-      "count": 1,
-      "reason": "mobile-correction lane — FTY-214."
+      "reason": "mobile-correction lane — FTY-214.",
+      "sites": [
+        {
+          "context": "styles.candidateChevron",
+          "sizes": [
+            20
+          ]
+        }
+      ]
     },
     {
       "file": "components/WeightEntryInput.tsx",
-      "count": 4,
-      "reason": "mobile-weight lane — FTY-215."
+      "reason": "mobile-weight lane — FTY-215.",
+      "sites": [
+        {
+          "context": "input",
+          "sizes": [
+            17
+          ]
+        },
+        {
+          "context": "unit",
+          "sizes": [
+            17
+          ]
+        },
+        {
+          "context": "error",
+          "sizes": [
+            14
+          ]
+        },
+        {
+          "context": "buttonLabel",
+          "sizes": [
+            16
+          ]
+        }
+      ]
     },
     {
       "file": "components/WeightScreen.tsx",
-      "count": 4,
-      "reason": "mobile-weight lane — FTY-215."
+      "reason": "mobile-weight lane — FTY-215.",
+      "sites": [
+        {
+          "context": "title",
+          "sizes": [
+            34
+          ]
+        },
+        {
+          "context": "sectionLabel",
+          "sizes": [
+            13
+          ]
+        },
+        {
+          "context": "centerTitle",
+          "sizes": [
+            24
+          ]
+        },
+        {
+          "context": "centerBody",
+          "sizes": [
+            15
+          ]
+        }
+      ]
     },
     {
       "file": "components/WeightTrendChart.tsx",
-      "count": 5,
-      "reason": "mobile-weight lane — FTY-215."
+      "reason": "mobile-weight lane — FTY-215.",
+      "sites": [
+        {
+          "context": "stateText",
+          "sizes": [
+            15
+          ]
+        },
+        {
+          "context": "singlePoint",
+          "sizes": [
+            22
+          ]
+        },
+        {
+          "context": "singleDate",
+          "sizes": [
+            14
+          ]
+        },
+        {
+          "context": "retryLabel",
+          "sizes": [
+            15
+          ]
+        },
+        {
+          "context": "axisLabel",
+          "sizes": [
+            11
+          ]
+        }
+      ]
     },
     {
       "file": "components/BarcodeScannerScreen.tsx",
-      "count": 2,
-      "reason": "mobile-capture lane — FTY-216."
+      "reason": "mobile-capture lane — FTY-216.",
+      "sites": [
+        {
+          "context": "styles.guidance",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "styles.manualLabel",
+          "sizes": [
+            16
+          ]
+        }
+      ]
     },
     {
       "file": "components/CameraCapture.tsx",
-      "count": 3,
-      "reason": "mobile-capture lane — FTY-216."
+      "reason": "mobile-capture lane — FTY-216.",
+      "sites": [
+        {
+          "context": "styles.rationaleText",
+          "sizes": [
+            17
+          ]
+        },
+        {
+          "context": "styles.primaryButtonLabel",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "styles.closeButtonLabel",
+          "sizes": [
+            18
+          ]
+        }
+      ]
     },
     {
       "file": "components/LabelCaptureScreen.tsx",
-      "count": 6,
-      "reason": "mobile-capture lane — FTY-216."
+      "reason": "mobile-capture lane — FTY-216.",
+      "sites": [
+        {
+          "context": "framingHintText",
+          "sizes": [
+            15
+          ]
+        },
+        {
+          "context": "errorText",
+          "sizes": [
+            15
+          ]
+        },
+        {
+          "context": "saveLabel",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "secondaryButtonLabel",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "primaryButtonLabel",
+          "sizes": [
+            16
+          ]
+        },
+        {
+          "context": "uploadingText",
+          "sizes": [
+            16
+          ]
+        }
+      ]
     },
     {
       "file": "components/EWMATrendChart.tsx",
-      "count": 5,
-      "reason": "mobile-trends lane — FTY-217."
+      "reason": "mobile-trends lane — FTY-217.",
+      "sites": [
+        {
+          "context": "styles.stateText",
+          "sizes": [
+            15
+          ]
+        },
+        {
+          "context": "styles.singlePoint",
+          "sizes": [
+            22
+          ]
+        },
+        {
+          "context": "styles.singleDate",
+          "sizes": [
+            14
+          ]
+        },
+        {
+          "context": "styles.retryLabel",
+          "sizes": [
+            15
+          ]
+        },
+        {
+          "context": "styles.axisLabel",
+          "sizes": [
+            11
+          ]
+        }
+      ]
     }
   ]
 }
