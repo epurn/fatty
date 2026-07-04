@@ -753,7 +753,7 @@ describe('FTY-183 correction flow: stateful mock endpoints', () => {
     expect(edited).toEqual(E2E_SAVED_FOOD_EDITED_ITEM);
     if (edited.item_type === 'food') {
       expect(edited.calories).toBe(800);
-      expect(edited.is_edited).toBe(true);
+      expect(edited.is_edited).toBe(false); // amount_adjust is provenance-preserving → item stays un-edited (contract)
     }
   });
 

@@ -563,7 +563,8 @@ export const E2E_SAVED_FOOD_EDITED_ITEM: DerivedFoodItemDTO = {
   protein_g_estimated: E2E_SAVED_FOOD.protein_g,
   carbs_g_estimated: E2E_SAVED_FOOD.carbs_g,
   fat_g_estimated: E2E_SAVED_FOOD.fat_g,
-  is_edited: true,
+  // Portion (amount) change = provenance-preserving `amount_adjust`, item stays un-edited (docs/contracts/corrections.md).
+  is_edited: false,
   created_at: '2026-01-01T08:00:00Z',
   updated_at: '2026-01-01T12:06:00Z',
 };
