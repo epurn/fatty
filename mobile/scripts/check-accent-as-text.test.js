@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
 
 const {
   scanSource,
@@ -90,20 +91,47 @@ describe("accent-text-baseline.json", () => {
     expect(baseline.sites.some((site) => site.file === "app/day.tsx")).toBe(false);
   });
 
+  it("does not baseline components/WeightLogSheet.tsx — drained by FTY-210", () => {
+    expect(
+      baseline.sites.some((site) => site.file === "components/WeightLogSheet.tsx"),
+    ).toBe(false);
+  });
+
+  it("does not baseline the Today-owned files drained by FTY-207 — they are fixed, not deferred", () => {
+    const baselinedFiles = baseline.sites.map((site) => site.file);
+    expect(baselinedFiles).not.toContain("components/EntryRow.tsx");
+    expect(baselinedFiles).not.toContain("components/ConfirmParsedValuesSheet.tsx");
+  });
+
+  it("does not baseline components/TrendsScreen.tsx — drained by FTY-209", () => {
+    expect(
+      baseline.sites.some((site) => site.file === "components/TrendsScreen.tsx"),
+    ).toBe(false);
+  });
+
+  it("does not baseline the correction-owned files drained by FTY-208 — they are fixed, not deferred", () => {
+    const baselinedFiles = baseline.sites.map((site) => site.file);
+    expect(baselinedFiles).not.toContain("components/CorrectionSheet.tsx");
+    expect(baselinedFiles).not.toContain("components/correction/ChangeMatchPanel.tsx");
+    expect(baselinedFiles).not.toContain("components/correction/ProvenanceBlock.tsx");
+    expect(baselinedFiles).not.toContain("components/correction/SaveFoodRow.tsx");
+  });
+
+  it("does not baseline components/settings/BodySection.tsx — drained by FTY-212", () => {
+    expect(
+      baseline.sites.some((site) => site.file === "components/settings/BodySection.tsx"),
+    ).toBe(false);
+  });
+
+  it("does not baseline components/onboarding/MeasurementsStep.tsx — drained by FTY-211", () => {
+    expect(
+      baseline.sites.some((site) => site.file === "components/onboarding/MeasurementsStep.tsx"),
+    ).toBe(false);
+  });
+
   it("enumerates the currently-known per-screen accent-as-text sites", () => {
     const byFile = Object.fromEntries(baseline.sites.map((site) => [site.file, site.count]));
-    expect(byFile).toEqual({
-      "components/ConfirmParsedValuesSheet.tsx": 1,
-      "components/CorrectionSheet.tsx": 2,
-      "components/EntryRow.tsx": 3,
-      "components/TrendsScreen.tsx": 1,
-      "components/WeightLogSheet.tsx": 1,
-      "components/correction/ChangeMatchPanel.tsx": 1,
-      "components/correction/ProvenanceBlock.tsx": 1,
-      "components/correction/SaveFoodRow.tsx": 1,
-      "components/onboarding/MeasurementsStep.tsx": 1,
-      "components/settings/BodySection.tsx": 1,
-    });
+    expect(byFile).toEqual({});
   });
 
   it("covers the live tree exactly — make verify passes with the baseline present", () => {
@@ -115,5 +143,152 @@ describe("accent-text-baseline.json", () => {
       [...loadBaselineCounts(DEFAULT_BASELINE_PATH).entries()].map(([f, c]) => [f, c]),
     );
     expect(live).toEqual(baselineCounts);
+  });
+});
+
+describe("FTY-207 — Today-owned accent-as-text sites are fully drained", () => {
+  // The Today-owned files: the row/status/banner/suggestion components at
+  // components/, the today screen host + its sheets under components/today/,
+  // and ConfirmParsedValuesSheet.tsx — a Today sheet mounted from
+  // components/today/TodaySheetHost.tsx that lives at components/ (not
+  // components/today/), so a components/today/ glob alone would miss it.
+  const TODAY_OWNED_FILES = [
+    "components/EntryRow.tsx",
+    "components/OfflineEntryRow.tsx",
+    "components/ItemTimelineRow.tsx",
+    "components/TypeaheadSuggestionBar.tsx",
+    "components/StatusIcon.tsx",
+    "components/ConnectionBanner.tsx",
+    "components/TodayScreen.tsx",
+    "components/ConfirmParsedValuesSheet.tsx",
+    "components/today/ClusterView.tsx",
+    "components/today/SignInRequired.tsx",
+    "components/today/Timeline.tsx",
+    "components/today/TodayComposer.tsx",
+    "components/today/TodaySheetHost.tsx",
+  ];
+
+  it("has no remaining color: colors.accent text site in any Today-owned file", () => {
+    for (const rel of TODAY_OWNED_FILES) {
+      const abs = path.join(MOBILE_ROOT, rel);
+      const lines = scanSource(fs.readFileSync(abs, "utf8"), rel);
+      expect({ file: rel, lines }).toEqual({ file: rel, lines: [] });
+    }
+  });
+
+  it("leaves ConfirmParsedValuesSheet.tsx's backgroundColor: colors.accent fill sites untouched", () => {
+    const code = fs.readFileSync(
+      path.join(MOBILE_ROOT, "components/ConfirmParsedValuesSheet.tsx"),
+      "utf8",
+    );
+    const fillSites = code.match(/backgroundColor: colors\.accent\b/g) ?? [];
+    expect(fillSites.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("FTY-208 — correction-owned accent-as-text sites are fully drained", () => {
+  // The correction-owned files: the sheet host at components/, and its
+  // change-match / provenance / save-food panels under components/correction/.
+  const CORRECTION_OWNED_FILES = [
+    "components/CorrectionSheet.tsx",
+    "components/correction/ChangeMatchPanel.tsx",
+    "components/correction/ProvenanceBlock.tsx",
+    "components/correction/SaveFoodRow.tsx",
+  ];
+
+  it("has no remaining color: colors.accent text site in any correction-owned file", () => {
+    for (const rel of CORRECTION_OWNED_FILES) {
+      const abs = path.join(MOBILE_ROOT, rel);
+      const lines = scanSource(fs.readFileSync(abs, "utf8"), rel);
+      expect({ file: rel, lines }).toEqual({ file: rel, lines: [] });
+    }
+  });
+
+  it("leaves OverridePanel.tsx's backgroundColor: colors.accent fill site untouched", () => {
+    const code = fs.readFileSync(
+      path.join(MOBILE_ROOT, "components/correction/OverridePanel.tsx"),
+      "utf8",
+    );
+    const fillSites = code.match(/backgroundColor: colors\.accent\b/g) ?? [];
+    expect(fillSites.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("leaves ClarifyMode.tsx's backgroundColor: colors.accent fill site untouched", () => {
+    const code = fs.readFileSync(path.join(MOBILE_ROOT, "components/ClarifyMode.tsx"), "utf8");
+    const fillSites = code.match(/backgroundColor:[^}]*colors\.accent\b/g) ?? [];
+    expect(fillSites.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("FTY-212 — settings-owned accent-as-text sites are fully drained", () => {
+  // The settings-owned files: the screen host at components/, and its
+  // section/row/primitive components under components/settings/.
+  const SETTINGS_OWNED_FILES = [
+    "components/SettingsScreen.tsx",
+    "components/settings/AccountSection.tsx",
+    "components/settings/BodySection.tsx",
+    "components/settings/DataAboutSection.tsx",
+    "components/settings/MiniTargetReveal.tsx",
+    "components/settings/OverrideEditCard.tsx",
+    "components/settings/PreferencesSection.tsx",
+    "components/settings/StateScreens.tsx",
+    "components/settings/TargetRow.tsx",
+    "components/settings/YouSection.tsx",
+    "components/settings/primitives.tsx",
+  ];
+
+  it("has no remaining color: colors.accent text site in any settings-owned file", () => {
+    for (const rel of SETTINGS_OWNED_FILES) {
+      const abs = path.join(MOBILE_ROOT, rel);
+      const lines = scanSource(fs.readFileSync(abs, "utf8"), rel);
+      expect({ file: rel, lines }).toEqual({ file: rel, lines: [] });
+    }
+  });
+
+  it("leaves BodySection.tsx's borderColor: colors.accent selection-ring site untouched", () => {
+    const code = fs.readFileSync(
+      path.join(MOBILE_ROOT, "components/settings/BodySection.tsx"),
+      "utf8",
+    );
+    const borderSites = code.match(/borderColor: selected \? colors\.accent\b/g) ?? [];
+    expect(borderSites.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("FTY-211 — onboarding-owned accent-as-text sites are fully drained", () => {
+  // The onboarding-owned files: the wizard host at components/OnboardingScreen.tsx,
+  // and its step/primitive components under components/onboarding/.
+  const ONBOARDING_OWNED_FILES = [
+    "components/OnboardingScreen.tsx",
+    "components/onboarding/GoalStep.tsx",
+    "components/onboarding/MeasurementsStep.tsx",
+    "components/onboarding/TargetRevealStep.tsx",
+    "components/onboarding/primitives.tsx",
+  ];
+
+  it("has no remaining color: colors.accent text site in any onboarding-owned file", () => {
+    for (const rel of ONBOARDING_OWNED_FILES) {
+      const abs = path.join(MOBILE_ROOT, rel);
+      const lines = scanSource(fs.readFileSync(abs, "utf8"), rel);
+      expect({ file: rel, lines }).toEqual({ file: rel, lines: [] });
+    }
+  });
+
+  it("leaves MeasurementsStep.tsx's borderColor: colors.accent selection site untouched", () => {
+    const code = fs.readFileSync(
+      path.join(MOBILE_ROOT, "components/onboarding/MeasurementsStep.tsx"),
+      "utf8",
+    );
+    const borderSites = code.match(/borderColor: selected\s*\?\s*colors\.accent\b/g) ?? [];
+    expect(borderSites.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("leaves primitives.tsx's backgroundColor: colors.accent step-progress dot untouched", () => {
+    const code = fs.readFileSync(
+      path.join(MOBILE_ROOT, "components/onboarding/primitives.tsx"),
+      "utf8",
+    );
+    const fillSites = code.match(/backgroundColor:\s*\n?\s*active \|\| done \? colors\.accent\b/g) ?? [];
+    expect(fillSites.length).toBeGreaterThanOrEqual(1);
   });
 });

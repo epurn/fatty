@@ -19,7 +19,7 @@ import {
   rangeProse,
   type DateRangeKey,
 } from "@/state/trends";
-import { lightPalette } from "@/theme";
+import { ThemeProvider, lightPalette, darkPalette } from "@/theme";
 
 // TrendsScreen now uses ScreenHeader → AppIcon (expo-symbols); stub the native
 // module so tests run without a native runtime.
@@ -723,6 +723,38 @@ describe("TrendsScreen — adherence error and empty states", () => {
       (n) => n.props.accessibilityLabel === "Try again",
     );
     expect(retry.length).toBeGreaterThan(0);
+  });
+
+  it("renders the retry label with the AA-safe accentText token in both palettes (FTY-209)", async () => {
+    // The retry label is normal-size text on the raised surface, so it must use
+    // the AA-safe `accentText` token, not the decorative `accent` (which fails
+    // WCAG AA at ~2.14:1 on the light surface).
+    for (const scheme of ["light", "dark"] as const) {
+      const palette = scheme === "light" ? lightPalette : darkPalette;
+      const tree = mount(
+        <ThemeProvider override={scheme}>
+          <TrendsScreen
+            session={SESSION}
+            listWeightEntries={jest.fn().mockResolvedValue([])}
+            getDailySummaryRange={jest.fn().mockRejectedValue(
+              new DailySummaryApiError(500, "error"),
+            )}
+            now={NOW}
+          />
+        </ThemeProvider>,
+      );
+      await act(async () => {});
+
+      const retryLabel = tree.root.find(
+        (n) =>
+          (n.type as unknown as string) === "Text" &&
+          n.props.children === "Try again",
+      );
+      expect(styleColor(retryLabel)).toBe(palette.accentText);
+    }
+    // The swap only matters on the light surface, where the tokens differ
+    // (dark's accent is already AA-safe, so accentText aliases it there).
+    expect(lightPalette.accentText).not.toBe(lightPalette.accent);
   });
 
   it("failed range request does not block the weight panel", async () => {

@@ -433,7 +433,7 @@ export function TrendsScreen({
                 onPress={reloadAdherence}
                 style={[styles.retryBtn, { borderRadius: radius.md }]}
               >
-                <Text style={[styles.retryLabel, { color: colors.accent }]}>
+                <Text style={[styles.retryLabel, { color: colors.accentText }]}>
                   Try again
                 </Text>
               </Pressable>
