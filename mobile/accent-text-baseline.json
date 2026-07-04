@@ -8,11 +8,6 @@
       "reason": "mobile-correction lane — FTY-208."
     },
     {
-      "file": "components/TrendsScreen.tsx",
-      "count": 1,
-      "reason": "mobile-trends lane — FTY-209."
-    },
-    {
       "file": "components/correction/ChangeMatchPanel.tsx",
       "count": 1,
       "reason": "mobile-correction lane — FTY-208."
