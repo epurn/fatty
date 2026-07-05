@@ -28,9 +28,11 @@ const DIRECTION_OPTIONS: readonly SegmentedControlOption<GoalDirection>[] = [
 ];
 
 /**
- * Map a pace preset to a segment that shows the short label but announces the
- * evidence-based description to VoiceOver (FTY-222) — preserving exactly the
- * copy the hand-rolled per-radio group used to announce.
+ * Map a pace preset to a segment that shows the short label and carries the
+ * evidence-based description (FTY-222). The shared control renders the selected
+ * option's description as a visible caption below the segments — surfacing the
+ * copy the hand-rolled per-radio group used to announce only via VoiceOver to
+ * every user, while keeping it reachable by VoiceOver as on-screen text.
  */
 function paceSegments(
   options: readonly { value: PacePreset; label: string; description: string }[],
@@ -38,7 +40,7 @@ function paceSegments(
   return options.map((o) => ({
     value: o.value,
     label: o.label,
-    accessibilityLabel: `${o.label}: ${o.description}`,
+    description: o.description,
   }));
 }
 

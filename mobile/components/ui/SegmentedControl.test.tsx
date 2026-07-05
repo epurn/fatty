@@ -78,9 +78,18 @@ it("defaults selectedIndex to 0 when the value is not among the options", () => 
   expect(findControl(tree).props.selectedIndex).toBe(0);
 });
 
-// ─── Per-segment accessibility labels (FTY-222, additive) ────────────────────
+// ─── Per-option description caption (FTY-222, additive) ──────────────────────
 
 type Pace = "gentle" | "steady";
+
+const PACE_OPTIONS = [
+  { value: "gentle" as Pace, label: "Gentle", description: "Gentle: slow" },
+  {
+    value: "steady" as Pace,
+    label: "Steady",
+    description: "Steady: recommended",
+  },
+];
 
 function findPace(tree: ReactTestRenderer) {
   return tree.root.findAll(
@@ -91,8 +100,16 @@ function findPace(tree: ReactTestRenderer) {
   )[0];
 }
 
+/** The visible description caption text, or null when no caption is rendered. */
+function captionText(tree: ReactTestRenderer): string | null {
+  const nodes = tree.root.findAll((n) => n.props.testID === "pace-caption");
+  if (nodes.length === 0) return null;
+  return nodes[0].props.children as string;
+}
+
 function renderPace(
-  options: { value: Pace; label: string; accessibilityLabel?: string }[],
+  options: { value: Pace; label: string; description?: string }[],
+  selected: Pace,
 ): ReactTestRenderer {
   let tree!: ReactTestRenderer;
   act(() => {
@@ -101,7 +118,7 @@ function renderPace(
         testID="pace"
         accessibilityLabel="Goal pace"
         options={options}
-        selected="steady"
+        selected={selected}
         onSelect={jest.fn()}
       />,
     );
@@ -109,30 +126,48 @@ function renderPace(
   return tree;
 }
 
-it("leaves the visible segment titles untouched when per-segment labels are set", () => {
-  const tree = renderPace([
-    { value: "gentle", label: "Gentle", accessibilityLabel: "Gentle: slow" },
-    { value: "steady", label: "Steady", accessibilityLabel: "Steady: recommended" },
-  ]);
-  // The short labels remain the tappable titles; descriptions live in a11y only.
+it("leaves the visible segment titles untouched when descriptions are set", () => {
+  const tree = renderPace(PACE_OPTIONS, "steady");
+  // The short labels remain the tappable titles; the description is the caption.
   expect(findPace(tree).props.values).toEqual(["Gentle", "Steady"]);
 });
 
-it("folds per-segment accessibility labels into the control accessibility label", () => {
-  const tree = renderPace([
-    { value: "gentle", label: "Gentle", accessibilityLabel: "Gentle: slow" },
-    { value: "steady", label: "Steady", accessibilityLabel: "Steady: recommended" },
-  ]);
-  expect(findPace(tree).props.accessibilityLabel).toBe(
-    "Goal pace. Gentle: slow. Steady: recommended",
-  );
+it("renders the selected option's description as a visible caption", () => {
+  const tree = renderPace(PACE_OPTIONS, "steady");
+  expect(captionText(tree)).toBe("Steady: recommended");
 });
 
-it("keeps the bare control accessibility label when no per-segment labels are given", () => {
-  // Additive guarantee: FTY-186 call sites (no per-segment labels) are unchanged.
-  const tree = renderPace([
-    { value: "gentle", label: "Gentle" },
-    { value: "steady", label: "Steady" },
-  ]);
+it("updates the caption when the selection changes", () => {
+  const tree = renderPace(PACE_OPTIONS, "steady");
+  act(() => {
+    tree.update(
+      <SegmentedControl<Pace>
+        testID="pace"
+        accessibilityLabel="Goal pace"
+        options={PACE_OPTIONS}
+        selected="gentle"
+        onSelect={jest.fn()}
+      />,
+    );
+  });
+  expect(captionText(tree)).toBe("Gentle: slow");
+});
+
+it("renders no caption when the selected option has no description", () => {
+  // Additive guarantee: FTY-186 call sites (no descriptions) render bare.
+  const tree = renderPace(
+    [
+      { value: "gentle", label: "Gentle" },
+      { value: "steady", label: "Steady" },
+    ],
+    "steady",
+  );
+  expect(captionText(tree)).toBeNull();
+});
+
+it("keeps the bare control accessibility label unchanged (additive)", () => {
+  // The description surfaces as a caption, never folded into the control label,
+  // so FTY-186 call sites keep their exact accessibility label.
+  const tree = renderPace(PACE_OPTIONS, "steady");
   expect(findPace(tree).props.accessibilityLabel).toBe("Goal pace");
 });

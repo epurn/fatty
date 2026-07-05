@@ -685,23 +685,30 @@ describe("accessibility", () => {
     const tree = await mount();
     const control = segmentedControl(tree, PACE_TESTID);
     expect(control).toBeTruthy();
-    // Visible titles stay short; the control label starts with "Goal pace".
+    // Visible titles stay short; the control keeps its bare "Goal pace" label —
+    // descriptions surface as a caption, not folded into the control label.
     expect(control.props.values).toEqual(["Gentle", "Steady", "Faster"]);
-    expect(control.props.accessibilityLabel).toMatch(/^Goal pace\./);
+    expect(control.props.accessibilityLabel).toBe("Goal pace");
   });
 
-  it("preserves the pace descriptions in the control's accessibility label (no VoiceOver regression)", async () => {
+  it("surfaces the selected pace description as a visible caption (no VoiceOver regression)", async () => {
     // Migrating off the per-radio pill must not drop the evidence-based pace
-    // copy VoiceOver used to announce; the wrapper folds each segment's
-    // description into the control accessibility label (FTY-222).
+    // copy VoiceOver used to announce. The wrapper renders the *selected*
+    // option's description as an on-screen caption — reaching every user and,
+    // as ordinary text, still reachable by VoiceOver (FTY-222). Default pace is
+    // steady.
     const tree = await mount();
-    const label = segmentedControl(tree, PACE_TESTID).props
-      .accessibilityLabel as string;
-    expect(label).toContain("Gentle: ~0.25% of bodyweight / week");
-    expect(label).toContain(
-      "Steady: ~0.5% of bodyweight / week — recommended",
+    const caption = byTestId(tree, `${PACE_TESTID}-caption`);
+    expect(caption.props.children).toBe(
+      "~0.5% of bodyweight / week — recommended",
     );
-    expect(label).toContain("Faster: ~0.75–1% of bodyweight / week");
+  });
+
+  it("updates the pace caption when a different pace is selected", async () => {
+    const tree = await mount();
+    selectSegment(tree, PACE_TESTID, "Gentle");
+    const caption = byTestId(tree, `${PACE_TESTID}-caption`);
+    expect(caption.props.children).toBe("~0.25% of bodyweight / week");
   });
 
   it("stepper has progressbar role with correct value", async () => {
