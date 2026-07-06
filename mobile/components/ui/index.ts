@@ -18,6 +18,5 @@ export {
   floatingSwitcherClearance,
 } from './FloatingSwitcher';
 export type { FloatingSwitcherSegment } from './FloatingSwitcher';
-export { TabBarScrim } from './TabBarScrim';
 export { SegmentedControl } from './SegmentedControl';
 export type { SegmentedControlOption } from './SegmentedControl';
