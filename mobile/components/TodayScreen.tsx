@@ -33,7 +33,7 @@ import {
   saveFood as saveFoodApi,
   searchSavedFoods as searchSavedFoodsApi,
 } from "@/api/savedFoods";
-import { AppIcon, ScreenHeader, floatingSwitcherClearance } from "@/components/ui";
+import { AppIcon, ScreenHeader, TabBarScrim, floatingSwitcherClearance } from "@/components/ui";
 import { BarcodeScannerScreen } from "@/components/BarcodeScannerScreen";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DailySummary } from "@/components/DailySummary";
@@ -378,6 +378,14 @@ export function TodayScreen({
           onRetry={() => void refresh()}
         />
       </ScrollView>
+
+      {/* FTY-185 dimming fade: dims scrolled timeline content as it slides beneath
+          the bottom chrome, since the native blur alone doesn't guarantee content
+          is illegible through it. Its height matches the reserved bottom clearance
+          so the fade spans exactly the zone content scrolls through. Kept wired
+          here (not dead code) and retired alongside Today's clearance in FTY-257
+          (FTY-242 acceptance criteria). */}
+      <TabBarScrim height={floatingSwitcherClearance(insets.bottom)} />
 
       <TodaySheetHost
         apiSession={apiSession}

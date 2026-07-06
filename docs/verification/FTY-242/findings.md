@@ -59,3 +59,14 @@ SE-class (iPhone SE 3rd gen): `iphonese-{light,dark}-{today,trends-top,trends-bo
 - Today is shown in its empty state (E2E mock starts with an empty day); the pill
   placement, material, and selected state are identical regardless of timeline
   content. The provenance/timeline behaviour is unchanged by this story.
+- The bottom-clearance *contract* is proven structurally, which is the required
+  proof for this story ("No simulator visual evidence in this story. Structural/
+  behavioural proof only; the running-app light/dark walk is FTY-259"):
+  - Today — `mobile/components/TodayScreenBottomClearance.test.tsx` asserts the
+    scroll reserves `floatingSwitcherClearance(insets.bottom)` and that the
+    FTY-185 scrim stays wired at that same height.
+  - Trends — `mobile/components/TrendsScreen.test.tsx` ("bottom clearance") asserts
+    the scroll reserves the same `floatingSwitcherClearance(insets.bottom)`
+    footprint.
+  A scrolled/near-bottom *running-app* walk of Today (both appearances) is the
+  explicit remit of FTY-259, not this PR.

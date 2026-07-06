@@ -57,11 +57,12 @@ beforeEach(() => mockReduceMotion(false));
 
 afterEach(cleanupTrees);
 
-// FTY-242: the full-width bottom tab bar (and its FTY-185 dimming scrim) are
-// retired in favour of the bottom-left floating switcher. Today no longer draws a
-// full-width fade; instead it reserves bottom clearance sourced from the
-// switcher's own footprint so its last timeline row scrolls clear of the pill and
-// the home indicator. These tests prove that reservation and the scrim's removal.
+// FTY-242: the full-width bottom tab bar is retired in favour of the bottom-left
+// floating switcher. Today reserves bottom clearance sourced from the switcher's
+// own footprint so its last timeline row scrolls clear of the pill and the home
+// indicator. The FTY-185 dimming scrim stays wired to Today (not dead code) and
+// is retired alongside this clearance in FTY-257. These tests prove both the
+// clearance reservation and that the scrim remains wired at the clearance height.
 describe("TodayScreen bottom clearance (FTY-242 floating switcher)", () => {
   function mountToday() {
     const load = jest
@@ -93,15 +94,17 @@ describe("TodayScreen bottom clearance (FTY-242 floating switcher)", () => {
     );
   });
 
-  it("no longer renders a tab-bar-scrim artifact", async () => {
+  it("keeps the FTY-185 scrim wired at the clearance height (retired in FTY-257)", async () => {
     const tree = mountToday();
     await act(async () => {});
 
-    const scrims = tree.root.findAll(
-      (n) =>
-        typeof n.props.testID === "string" &&
-        n.props.testID.startsWith("tab-bar-scrim"),
-    );
-    expect(scrims).toHaveLength(0);
+    const scrim = tree.root.find((n) => n.props.testID === "tab-bar-scrim");
+    expect(scrim).toBeTruthy();
+
+    const safeAreaBottom = 34;
+    const style = StyleSheet.flatten(scrim.props.style) as { height?: number };
+    // The scrim spans exactly the reserved clearance zone — same single source of
+    // truth as the scroll padding, so the two can't drift.
+    expect(style.height).toBe(floatingSwitcherClearance(safeAreaBottom));
   });
 });
