@@ -53,6 +53,13 @@ persistence) are the **downstream FTY-280 implementation follow-up**, and the
 FTY-278/FTY-275 baseline ships until it lands. The stated fields need **no new parse
 persistence column** — like `brand`, they are consumed at resolution time, and the
 `derived_food_items` energy/macro columns are already nullable (FTY-044/FTY-051).
+FTY-280 implementation note: because a stated calorie total becomes rank-1
+`user_text` evidence, the FTY-158 self-consistency concordance also **compares the
+`stated_*` fields** across samples, and the parse step fails a stated total **closed**
+to a targeted calorie question when the samples materially disagree on it (a
+contradictory duplicate total, or a strict majority of the samples that recognised
+the item not extracting a total) — an unstable extraction is never persisted as a
+trusted user-stated fact.
 
 5 (FTY-278, contract only): defines the **item-scoped** clarification carrier for
 a mixed food log. A clarification question may now name the **specific unresolved

@@ -141,9 +141,10 @@ MACRO_ESTIMATE_NUM_SAMPLES = 3
 #: The missing-macro model-prior estimate's decision, as a documented tunable (there
 #: is no labelled macro-estimate calibration set to derive an operating point from —
 #: the same honesty rule the label gate follows, ``clarify_policy.py``). The signal is
-#: the cold-pass sampling agreement over the derived per-100g macro composition; an
-#: agreement below the operating point leaves the macro unknown rather than committing
-#: a shaky invented number.
+#: the cold-pass sampling agreement over the committed macro density (grams per kcal,
+#: which folds in the calorie density used to scale to the stated total); an agreement
+#: below the operating point leaves the macro unknown rather than committing a shaky
+#: invented number.
 USER_TEXT_MACRO_ESTIMATE_POLICY = ClarifyPolicy(
     signal="macro_sampling_agreement",
     threshold=0.6,
@@ -372,10 +373,11 @@ class UserTextMacroEstimator:
         """Estimate a per-100g composition from model prior via N cold passes.
 
         Draws ``MACRO_ESTIMATE_NUM_SAMPLES`` independent estimates in parallel, gates
-        on their **sampling agreement** over the derived per-100g macro composition
-        (``USER_TEXT_MACRO_ESTIMATE_POLICY``), and returns the mean composition only
-        when the passes agree — otherwise ``None`` (the macros stay unknown). A single
-        over-confident sample can never finalize a fabricated number.
+        on their **sampling agreement** over the committed macro density — grams per
+        kcal, so the calorie density used to scale to the stated total is part of the
+        gate (``USER_TEXT_MACRO_ESTIMATE_POLICY``) — and returns the mean composition
+        only when the passes agree, otherwise ``None`` (the macros stay unknown). A
+        single over-confident sample can never finalize a fabricated number.
         """
 
         samples = self._sample_model_prior(_identity_query(candidate))
@@ -456,12 +458,16 @@ class UserTextMacroEstimator:
 
 
 def _macro_agreement(compositions: list[NutritionFacts]) -> float:
-    """Mean pairwise agreement of the per-100g macro composition, in [0, 1].
+    """Mean pairwise agreement of the *committed* macro density, in [0, 1].
 
-    For each macro the pairwise agreement is the ``min/max`` ratio (1.0 when equal,
-    both-zero counts as full agreement); the score is the mean over the three macros
-    and all sample pairs. A composition whose samples diverge on the macro mix scores
-    low and the estimate fails closed.
+    For each macro the pairwise agreement is the ``min/max`` ratio of its grams
+    **per kcal** (1.0 when equal, both-zero counts as full agreement); the score is
+    the mean over the three macros and all sample pairs. Comparing grams-per-kcal
+    (not raw per-100g grams) folds in the calorie density that ``_scale_missing``
+    uses — two samples that agree on the macro mix but disagree on caloric density
+    scale to materially different committed grams, so they must not read as
+    agreement. A composition whose samples diverge scores low and the estimate
+    fails closed.
     """
 
     if len(compositions) < _MIN_SAMPLES_FOR_AGREEMENT:
@@ -475,12 +481,28 @@ def _macro_agreement(compositions: list[NutritionFacts]) -> float:
 
 
 def _composition_pair_agreement(a: NutritionFacts, b: NutritionFacts) -> float:
-    """Mean per-macro ``min/max`` ratio between two per-100g compositions."""
+    """Mean per-macro ``min/max`` ratio of grams-per-kcal between two compositions.
+
+    The committed gram total for a macro is ``macro_per_100g × stated_calories /
+    calories_per_100g``, so the value actually persisted depends on the macro's grams
+    *per kcal* (the shared stated-calorie factor cancels from the ratio), not on the
+    raw per-100g grams. Comparing that per-kcal density makes the agreement reflect
+    the calorie density: samples that would scale to materially different grams score
+    low even when their raw macro grams match. ``_composition`` guarantees each
+    composition's ``calories > 0``, so the division is safe.
+    """
 
     ratios = [
-        _ratio(getattr(a, name), getattr(b, name)) for name in ("protein_g", "carbs_g", "fat_g")
+        _ratio(_per_kcal(a, name), _per_kcal(b, name)) for name in ("protein_g", "carbs_g", "fat_g")
     ]
     return sum(ratios) / len(ratios)
+
+
+def _per_kcal(facts: NutritionFacts, name: str) -> float:
+    """Grams of the named macro per kcal — the density that survives calorie scaling."""
+
+    grams: float = getattr(facts, name)
+    return grams / facts.calories
 
 
 def _ratio(x: float, y: float) -> float:

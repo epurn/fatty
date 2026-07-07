@@ -20,8 +20,8 @@
     "backend/tests/test_parse_step.py": {
       "kind": "test",
       "lane": "estimator",
-      "lines": 1091,
-      "reason": "Existing over-threshold first-party test file at FTY-200 baseline; +68 in FTY-280 covering user-stated nutrition extraction — the stated_* fields carried onto the candidate, a stated calorie total as a detail signal that avoids clarification, and a negative stated value failing closed as schema-invalid."
+      "lines": 1151,
+      "reason": "Existing over-threshold first-party test file at FTY-200 baseline; +68 in FTY-280 covering user-stated nutrition extraction — the stated_* fields carried onto the candidate, a stated calorie total as a detail signal that avoids clarification, and a negative stated value failing closed as schema-invalid. +60 in the FTY-280 review round for the stated-calorie stability gate: contradictory duplicate totals across samples and a majority-missing total fail closed to a targeted calorie question, while a minority-missing sample does not over-clarify."
     },
     "docs/contracts/evidence-retrieval.md": {
       "kind": "source",

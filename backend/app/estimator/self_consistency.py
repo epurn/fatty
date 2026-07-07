@@ -81,6 +81,17 @@ HYBRID_AGREEMENT_WEIGHT = 0.6
 #: sample trivially "agrees" with itself and says nothing about consistency.
 _MIN_SAMPLES_FOR_UNANIMITY = 2
 
+#: The user-stated (FTY-279/FTY-280) nutrition facts a matched item pair must also
+#: agree on before the parse reads as unanimous. These are the numbers that become
+#: rank-1 ``user_text`` evidence, so unstable/contradictory extraction of them must
+#: lower concordance rather than be trusted (see :func:`_stated_nutrition_agreement`).
+_STATED_NUTRITION_FIELDS = (
+    "stated_calories",
+    "stated_protein_g",
+    "stated_carbs_g",
+    "stated_fat_g",
+)
+
 
 @dataclass(frozen=True)
 class SelfConsistencySignal:
@@ -363,6 +374,9 @@ def _quantity_agreement(a: ParsedCandidate, b: ParsedCandidate) -> float:
     - Amounts: both absent → 1.0 (the samples agree there is no amount);
       exactly one absent → 0.0; both present → ``min/max`` ratio (1.0 when
       equal, both-zero counts as equal).
+    - Stated nutrition (FTY-279/FTY-280): folded in as a multiplicative factor so
+      unstable/contradictory extraction of a user-stated calorie total or macro
+      pulls the pair below unanimity (see :func:`_stated_nutrition_agreement`).
 
     ``quantity_text`` is deliberately not compared: it is raw phrasing that
     varies harmlessly across samples ("2" vs "two"); the structured
@@ -372,15 +386,64 @@ def _quantity_agreement(a: ParsedCandidate, b: ParsedCandidate) -> float:
     unit_a, unit_b = _normalise(a.unit or ""), _normalise(b.unit or "")
     if unit_a and unit_b and unit_a != unit_b:
         return 0.0
-    if a.amount is None and b.amount is None:
+    return _amount_agreement(a.amount, b.amount) * _stated_nutrition_agreement(a, b)
+
+
+def _amount_agreement(amount_a: float | None, amount_b: float | None) -> float:
+    """Agreement of two matched items' structured amounts, in [0, 1]."""
+
+    if amount_a is None and amount_b is None:
         return 1.0
-    if a.amount is None or b.amount is None:
+    if amount_a is None or amount_b is None:
         return 0.0
-    if a.amount == b.amount:
+    if amount_a == amount_b:
         return 1.0
-    low, high = sorted((a.amount, b.amount))
+    low, high = sorted((amount_a, amount_b))
     # ``high > 0`` always holds here (amounts are >= 0 and unequal), but guard
     # anyway so the ratio can never divide by zero.
+    return low / high if high > 0 else 0.0
+
+
+def _stated_nutrition_agreement(a: ParsedCandidate, b: ParsedCandidate) -> float:
+    """Agreement over the user-stated nutrition facts of two matched items, in [0, 1].
+
+    Only fields *in play* — those at least one sample extracted — are scored, so an
+    ordinary parse that states no nutrition is unaffected (1.0), keeping the metric
+    identical for the non-user-text path. For a scored field:
+
+    - both present → ``min/max`` ratio (a contradictory calorie total across samples
+      scores low, so it cannot read as unanimous);
+    - exactly one present → 0.0 (the samples disagree on whether the user stated the
+      fact at all — an unstable extraction, not agreement).
+
+    This is the trust gate for the rank-1 ``user_text`` tier: a stated calorie total
+    is persisted as user-stated evidence only when the samples agree it was stated
+    *and* agree on the value (``docs/contracts/parse-candidates.md``).
+    """
+
+    scores = [
+        _ratio(getattr(a, field), getattr(b, field))
+        for field in _STATED_NUTRITION_FIELDS
+        if getattr(a, field) is not None or getattr(b, field) is not None
+    ]
+    if not scores:
+        return 1.0
+    return sum(scores) / len(scores)
+
+
+def _ratio(x: float | None, y: float | None) -> float:
+    """``min/max`` agreement of two stated facts, in [0, 1].
+
+    Both present and equal → 1.0 (both-zero included); exactly one present → 0.0
+    (the samples disagree on whether the fact was stated). Stated facts are schema-
+    bounded non-negative, so the ratio is well-defined.
+    """
+
+    if x == y:
+        return 1.0
+    if x is None or y is None:
+        return 0.0
+    low, high = sorted((x, y))
     return low / high if high > 0 else 0.0
 
 

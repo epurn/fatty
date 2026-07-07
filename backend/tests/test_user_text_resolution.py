@@ -482,6 +482,47 @@ def test_missing_macros_left_unknown_when_cold_passes_disagree(
     assert evidence.field_provenance["protein_g"] == "unknown"
 
 
+def test_missing_macros_left_unknown_when_calorie_density_disagrees(
+    client: TestClient, session: Session
+) -> None:
+    # The cold passes agree on the raw per-100g macro grams but disagree on the calorie
+    # density used to scale them, so they would commit materially different gram totals.
+    # The agreement gate compares grams-per-kcal (the committed basis), so this fails
+    # closed to unknown rather than trusting the mean — the item still counts its 580.
+    user_id, event_id = _seed_event(client, "density@example.com", _SOBEYS_TEXT)
+
+    def _facts(calories: float) -> dict[str, Any]:
+        return {
+            "basis": "per_100g",
+            "calories": calories,
+            "protein_g": 10.0,
+            "carbs_g": 20.0,
+            "fat_g": 8.0,
+        }
+
+    # Identical macro grams, 5× spread in calorie density → 5× spread in committed grams.
+    estimates: list[dict[str, Any] | LLMError] = [
+        {"disposition": "resolved", "confidence": 0.9, "facts": _facts(100.0)},
+        {"disposition": "resolved", "confidence": 0.9, "facts": _facts(500.0)},
+        {"disposition": "resolved", "confidence": 0.9, "facts": _facts(100.0)},
+    ]
+    estimator = _macro_estimator(search=_no_search(), estimates=estimates)
+    pipeline = _pipeline(session, parsed_item=_stated_item(), macro_estimator=estimator)
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+    assert result.event_status is LogEventStatus.COMPLETED
+
+    food = _foods(session, event_id)[0]
+    assert food.calories == 580.0
+    assert food.protein_g is None
+    assert food.carbs_g is None
+    assert food.fat_g is None
+    assert _questions(session, event_id) == []
+    evidence = _evidence(session, event_id)
+    assert evidence.field_provenance is not None
+    assert evidence.field_provenance["protein_g"] == "unknown"
+
+
 def test_external_lookup_failure_still_counts_the_stated_total(
     client: TestClient, session: Session
 ) -> None:
@@ -564,7 +605,9 @@ def test_representative_logs_estimate_far_more_than_they_clarify(
     Qualitative regression for the product expectation (``food-resolution.md`` — a
     low clarification rate, no hard numeric quota): ordinary branded / portioned /
     user-stated logs resolve or estimate, and only a bare identity with no usable
-    detail asks.
+    detail asks. The named categories cover a user-stated total, a stated total plus a
+    macro, an ordinary *branded* item with no user-stated nutrition, a worded portion
+    (FTY-275), and the single genuinely-indeterminate case that still clarifies.
     """
 
     cases: list[tuple[str, dict[str, object], bool]] = [
@@ -573,6 +616,18 @@ def test_representative_logs_estimate_far_more_than_they_clarify(
         (
             "stated calories + macro",
             _stated_item(stated_calories=450.0, stated_protein_g=20.0),
+            False,
+        ),
+        (
+            "branded item, no user-stated nutrition",
+            {
+                "type": "food",
+                "name": "Clif bar",
+                "brand": "Clif",
+                "quantity_text": "1 bar",
+                "unit": "bar",
+                "amount": 1,
+            },
             False,
         ),
         (
