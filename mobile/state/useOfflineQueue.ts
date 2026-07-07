@@ -13,14 +13,18 @@
  * network-status native module is needed. A successful online capture also
  * nudges a drain immediately via {@link OfflineQueue.drainNow}.
  *
- * Sign-out (the signed-in user changing, including to `null`) clears the
- * previous user's queue from on-device storage, so a queued entry never persists
- * for or leaks to a different user of the device. This is keyed on a real user
- * transition — not on the screen unmounting — so navigating away from the Log
- * tab never wipes the durable queue.
+ * Retention (FTY-277): sign-out — the owner changing, including to `null` — no
+ * longer *deletes* the previous owner's durable queue. It **hides** it: the
+ * in-memory view is cleared and the signed-out surface reads empty/online, but
+ * the durable file survives so the *same* owner recovers its backlog on the next
+ * sign-in. "Owner" is the server URL **and** the user id, so a self-hosted server
+ * never shares a queue with another; the previous owner's entries are never
+ * exposed while signed out and never drained under a different owner. This is
+ * keyed on a real owner transition — not on the screen unmounting — so navigating
+ * away from the Log tab never touches the durable queue.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { LogEventDTO } from "@/api/logEvents";
 import {
@@ -28,7 +32,9 @@ import {
   hasQueuedWork,
   mergeDrainResult,
   normalizeLoaded,
+  outboxOwnerKey,
   type OutboxEntry,
+  type OutboxOwner,
   type OutboxStore,
   type OutboxSubmit,
 } from "@/state/outbox";
@@ -53,11 +59,15 @@ export interface OfflineQueue {
 const EMPTY: readonly OutboxEntry[] = [];
 
 export function useOfflineQueue(args: {
-  /** The signed-in user id, or `null` when signed out. */
-  readonly userId: string | null;
+  /**
+   * The signed-in queue owner (server URL + user id), or `null` when signed out.
+   * The queue is server+user scoped, so the same `userId` on two servers is two
+   * distinct owners with separate durable queues.
+   */
+  readonly owner: OutboxOwner | null;
   /** Submit one entry to the server (wired to the create endpoint + session). */
   readonly submit: OutboxSubmit;
-  /** Durable per-user persistence. */
+  /** Durable owner-scoped persistence. */
   readonly store: OutboxStore;
   /** Called when an entry is accepted, to hand it to the normal feed flow. */
   readonly onAccepted: (entry: OutboxEntry, event: LogEventDTO) => void;
@@ -65,19 +75,39 @@ export function useOfflineQueue(args: {
   readonly retryIntervalMs?: number;
 }): OfflineQueue {
   const {
-    userId,
+    owner: ownerInput,
     submit,
     store,
     onAccepted,
     retryIntervalMs = OUTBOX_RETRY_INTERVAL_MS,
   } = args;
 
+  // Reduce the (possibly fresh-each-render) owner object to its primitive parts,
+  // then re-derive one stable owner reference. Everything downstream keys off
+  // this memoized owner so a caller passing a new `{serverUrl, userId}` literal
+  // each render never churns the load effect or the drain callbacks.
+  const serverUrl = ownerInput?.serverUrl ?? null;
+  const ownerUserId = ownerInput?.userId ?? null;
+  const owner = useMemo<OutboxOwner | null>(
+    () =>
+      serverUrl !== null && ownerUserId !== null
+        ? { serverUrl, userId: ownerUserId }
+        : null,
+    [serverUrl, ownerUserId],
+  );
+
   const [entries, setEntries] = useState<readonly OutboxEntry[]>(EMPTY);
   const [reachability, setReachability] = useState<ReachabilityState>("online");
 
+  const key = owner ? outboxOwnerKey(owner) : null;
+
   const mountedRef = useRef(true);
   const draining = useRef(false);
-  const prevUserId = useRef<string | null>(null);
+  // The owner the hook is currently bound to, updated synchronously by the load
+  // effect. An in-flight drain closes over the owner it *started* for and polls
+  // this ref to notice a sign-out/switch that happened mid-pass — the single
+  // source of truth the drain guards on so it never touches the new owner.
+  const activeOwnerKey = useRef<string | null>(null);
   // `entriesRef` is the *synchronous* authority for the queue: the drain and
   // enqueue callbacks read and write it directly between awaits, so neither can
   // act on a stale snapshot. `entries` state only mirrors it for rendering.
@@ -96,6 +126,21 @@ export function useOfflineQueue(args: {
     };
   }, []);
 
+  // Drop the previous owner's *rendered* queue the instant the owner changes,
+  // synchronously during render — before any committed render can expose owner
+  // A's raw entries to owner B (or to the signed-out surface). This is React's
+  // supported "adjust state when a prop changes" pattern: the setState calls
+  // re-render in place, so children never observe the stale value. The drain's
+  // synchronous authority (`entriesRef`) is reset alongside this in the load
+  // effect below — a ref must not be mutated during render. The durable file is
+  // intentionally left intact so the same owner reloads its backlog (FTY-277).
+  const [renderedOwnerKey, setRenderedOwnerKey] = useState<string | null>(key);
+  if (renderedOwnerKey !== key) {
+    setRenderedOwnerKey(key);
+    setEntries(EMPTY);
+    setReachability("online");
+  }
+
   // Update the queue everywhere at once: the synchronous ref (read by the
   // callbacks) and the rendered state. Keeping these in lockstep is what stops a
   // capture made during an in-flight drain from being lost to a stale snapshot.
@@ -110,10 +155,14 @@ export function useOfflineQueue(args: {
   // fully-merged queue (drain outcome + anything enqueued meanwhile).
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   const persist = useCallback(
-    (id: string) => {
+    (o: OutboxOwner, snapshot?: readonly OutboxEntry[]) => {
+      // Default to the live ref so the last write reflects the fully-merged
+      // queue; an explicit `snapshot` is used when the durable outcome must be
+      // pinned to a *specific* owner (a drain aborted by an owner change, where
+      // `entriesRef` has already moved on to the new owner's queue).
       const run = saveChain.current
         .catch(() => {})
-        .then(() => store.save(id, entriesRef.current));
+        .then(() => store.save(o, snapshot ?? entriesRef.current));
       saveChain.current = run;
       return run;
     },
@@ -121,9 +170,17 @@ export function useOfflineQueue(args: {
   );
 
   const drain = useCallback(async () => {
-    if (draining.current || !userId) return;
+    if (draining.current || !owner) return;
     const current = entriesRef.current;
     if (!hasQueuedWork(current)) return;
+
+    // The owner this drain is bound to. If it changes mid-pass (sign-out or a
+    // switch), the drain must not submit the rest through the new session, nor
+    // fold this owner's entries back into hook state that now belongs to the new
+    // owner. `activeOwnerKey` is the live authority for the current owner.
+    const drainOwner = owner;
+    const drainOwnerKey = outboxOwnerKey(drainOwner);
+    const ownerChanged = () => activeOwnerKey.current !== drainOwnerKey;
 
     // Keys the drain starts from. Anything enqueued mid-drain has a fresh key
     // outside this set and is merged back in rather than overwritten.
@@ -134,10 +191,25 @@ export function useOfflineQueue(args: {
       const result = await drainOutbox({
         entries: current,
         submit: (entry) => submitRef.current(entry),
+        shouldStop: ownerChanged,
         onChange: (live) => {
+          // Once the owner has changed, hook state belongs to the new owner —
+          // never merge the prior owner's drain progress back into it.
+          if (ownerChanged()) return;
           commitEntries(mergeDrainResult(entriesRef.current, snapshotKeys, live));
         },
       });
+
+      if (ownerChanged()) {
+        // The owner signed out or switched while this drain was in flight.
+        // Persist the drain's own outcome to *its* owner's durable file (pinned
+        // explicitly — `entriesRef` now holds the new owner's queue), and leave
+        // the live UI, reachability, and feed untouched: the accepted entries
+        // belong to the previous owner's server, not the new session.
+        await persist(drainOwner, result.entries);
+        return;
+      }
+
       const merged = mergeDrainResult(
         entriesRef.current,
         snapshotKeys,
@@ -146,7 +218,7 @@ export function useOfflineQueue(args: {
       entriesRef.current = merged;
       // Always persist the durable outcome, even if the screen has unmounted —
       // the queue must survive. UI updates are gated on still being mounted.
-      await persist(userId);
+      await persist(drainOwner);
       // Read the live ref (not `merged`) for the final UI sync: a capture may
       // have landed during the await, and the ref already accounts for it.
       if (mountedRef.current) {
@@ -159,30 +231,32 @@ export function useOfflineQueue(args: {
     } finally {
       draining.current = false;
     }
-  }, [userId, commitEntries, persist]);
+  }, [owner, commitEntries, persist]);
 
-  // Load the queue when the signed-in user changes, and purge the *previous*
-  // user's on-device queue on a real user transition (sign-out / switch). Keyed
-  // on the transition rather than effect-cleanup so unmount (navigation) never
-  // clears the durable queue.
+  // Load the owner's durable backlog when the owner changes, and — on a real
+  // owner transition (sign-out / switch) — *hide* the previous owner's queue.
+  // Hiding is memory-only: the durable file is deliberately left intact so the
+  // same owner recovers it on the next sign-in (FTY-277). Keyed on the owner
+  // transition rather than effect-cleanup so unmount (navigation) never touches
+  // the queue.
   useEffect(() => {
-    const previous = prevUserId.current;
-    if (previous !== null && previous !== userId) {
-      void store.clear(previous);
-      // Reset the in-memory view on a real user transition, independent of what
-      // the new user's store returns. Otherwise, if the next user has no stored
-      // backlog the load below early-returns and the previous user's queued
-      // entries stay in component state — leaking their raw captures into the
-      // new user's session (drained under the new session). The privacy
-      // guarantee this slice codifies requires clearing memory, not just disk.
-      commitEntries(EMPTY);
-      setReachability("online");
-    }
-    prevUserId.current = userId;
+    const nextKey = owner ? outboxOwnerKey(owner) : null;
+    // On a real owner transition, reset the drain's synchronous authority
+    // (`entriesRef`, read by the async drain/enqueue callbacks) to match the
+    // rendered view already cleared during render — so a drain can never act on
+    // the previous owner's entries under the new session. This is done here,
+    // not during render, because a ref must not be mutated mid-render.
+    if (activeOwnerKey.current !== nextKey) commitEntries(EMPTY);
+    // Publish the new owner synchronously (before the async load resolves) so an
+    // in-flight drain started for the previous owner sees the change and aborts.
+    // We do NOT delete the previous owner's durable file — that is the retention
+    // change this story makes. The privacy guarantee is that the raw text is gone
+    // from React state and the drain loop, not that it is erased from disk.
+    activeOwnerKey.current = nextKey;
 
-    if (!userId) return;
+    if (!owner) return;
     let active = true;
-    void store.load(userId).then((loaded) => {
+    void store.load(owner).then((loaded) => {
       if (!active || !mountedRef.current) return;
       const normalized = normalizeLoaded(loaded);
       // Nothing stored ⇒ the defaults (empty / online) already hold; skip the
@@ -194,41 +268,41 @@ export function useOfflineQueue(args: {
     return () => {
       active = false;
     };
-  }, [userId, store, commitEntries]);
+  }, [owner, store, commitEntries]);
 
   const enqueue = useCallback(
     async (entry: OutboxEntry) => {
-      if (!userId) return;
+      if (!owner) return;
       // Append against the synchronous ref so a capture made during an in-flight
       // drain is never lost — the drain merges it back rather than overwriting.
       commitEntries([...entriesRef.current, entry]);
       if (mountedRef.current) setReachability("offline");
       // Persist immediately — this is the durability guarantee (survives restart).
-      await persist(userId);
+      await persist(owner);
     },
-    [userId, commitEntries, persist],
+    [owner, commitEntries, persist],
   );
 
   const drainNow = useCallback(() => {
-    if (!userId) return;
+    if (!owner) return;
     if (hasQueuedWork(entriesRef.current)) {
       void drain();
     } else if (mountedRef.current) {
       // The caller just reached the server, so we are online and caught up.
       setReachability("online");
     }
-  }, [userId, drain]);
+  }, [owner, drain]);
 
   // Periodic reconnect probe: while a backlog exists, retry on a calm cadence.
   useIntervalPolling(
-    Boolean(userId) && hasQueuedWork(entries),
+    Boolean(owner) && hasQueuedWork(entries),
     retryIntervalMs,
     () => void drain(),
   );
 
   // When signed out, present a clean empty/online surface regardless of any
   // lingering in-memory state from a prior session.
-  return userId
+  return owner
     ? { reachability, entries, enqueue, drainNow }
     : { reachability: "online", entries: EMPTY, enqueue, drainNow };
 }

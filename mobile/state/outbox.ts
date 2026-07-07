@@ -15,9 +15,16 @@
  * {@link OutboxSubmit}. That keeps the dedup-critical drain logic unit-testable
  * with plain in-memory fakes.
  *
- * Privacy: a queued entry's `rawText` is sensitive personal data. It lives only
- * in the injected store (on-device, scoped to the signed-in user) and is never
- * logged here.
+ * Privacy & retention (FTY-277): a queued entry's `rawText` is sensitive personal
+ * data. It lives only in the injected store (on-device, scoped to its
+ * {@link OutboxOwner} — the normalized server URL *and* user id, so a self-hosted
+ * server can never share a queue with another) and is never logged here. Signing
+ * out **hides** the outbox and clears credentials, but does **not** delete the
+ * durable queue: it stays owner-scoped so the same owner recovers it on the next
+ * sign-in, and can only be loaded or drained once that same owner is signed in
+ * again. The durable file is removed when it drains empty (see {@link OutboxStore}
+ * `save(owner, [])`) or by an explicit destructive purge — never by a normal
+ * sign-out.
  */
 
 import type { LogEventDTO } from "@/api/logEvents";
@@ -40,7 +47,11 @@ export interface OutboxEntry {
    * retry of the same entry.
    */
   readonly idempotencyKey: string;
-  /** The signed-in user who captured this entry; the store is scoped to them. */
+  /**
+   * The signed-in user who captured this entry. The durable store is scoped to
+   * the full {@link OutboxOwner} (server + user); this field is the per-entry
+   * defence-in-depth check that a loaded file only yields its owner's captures.
+   */
   readonly userId: string;
   /** The raw natural-language text, exactly as captured. Sensitive. */
   readonly rawText: string;
@@ -51,16 +62,68 @@ export interface OutboxEntry {
 }
 
 /**
- * Durable, per-user persistence for the outbox. Implementations store entries
- * on-device scoped to `userId` so one user's queue never leaks to another.
+ * Who a durable queue belongs to (FTY-277). Fatty is self-host-first, so a queue
+ * is scoped to the **server the user connected to** *and* the user id — a
+ * `userId` alone is not a sufficient key, because the same `userId` on two
+ * different self-hosted servers is two different owners whose queues must never
+ * share storage or drain into each other.
+ */
+export interface OutboxOwner {
+  /** The server URL the session is bound to (the token's issuing server). */
+  readonly serverUrl: string;
+  /** The signed-in user id on that server. */
+  readonly userId: string;
+}
+
+/**
+ * Normalize a server URL for owner comparison: trim, drop trailing slashes, and
+ * lowercase **only the scheme + authority** (host[:port]), so cosmetically
+ * different spellings of the same server resolve to one owner while genuinely
+ * different servers stay distinct.
+ *
+ * The path is deliberately case-*sensitive*: a self-hosted Fatty can live under
+ * a base path, so `https://host/Fatty` and `https://host/fatty` are two distinct
+ * servers whose queues must not share storage. Lowercasing the whole URL would
+ * collapse them onto one owner key, so only the case-insensitive scheme +
+ * authority is folded; the path (and anything after it) keeps its original case.
+ */
+function normalizeServerUrl(serverUrl: string): string {
+  const trimmed = serverUrl.trim().replace(/\/+$/, "");
+  // `scheme://authority` then an optional path. Scheme + authority are
+  // case-insensitive per RFC 3986; the path is not.
+  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*)(.*)$/.exec(trimmed);
+  if (!match) return trimmed.toLowerCase();
+  return `${match[1].toLowerCase()}${match[2]}`;
+}
+
+/**
+ * A stable, deterministic identity string for an owner (normalized server +
+ * user). Used to key the durable file and to detect owner transitions. The NUL
+ * separator can never appear in a URL or UUID, so distinct owners never collide.
+ */
+export function outboxOwnerKey(owner: OutboxOwner): string {
+  return `${normalizeServerUrl(owner.serverUrl)}\u0000${owner.userId}`;
+}
+
+/**
+ * Durable, owner-scoped persistence for the outbox. Implementations store entries
+ * on-device keyed by the full {@link OutboxOwner} (server + user) so one owner's
+ * queue never leaks to another user — or to the same user on another server.
+ *
+ * Retention (FTY-277): the store is **not** cleared on sign-out. `save(owner, [])`
+ * removes the durable record when the queue drains empty (no residue), and
+ * `clear(owner)` is the explicit destructive-purge primitive — reserved for a
+ * future user-initiated "clear queued captures" action and tests. Normal
+ * sign-out must never call `clear`; the queue survives for the owner's next
+ * sign-in.
  */
 export interface OutboxStore {
-  /** Load the user's queued entries (empty array when none / unreadable). */
-  load(userId: string): Promise<readonly OutboxEntry[]>;
-  /** Persist the user's full queue, replacing what was stored. */
-  save(userId: string, entries: readonly OutboxEntry[]): Promise<void>;
-  /** Remove the user's queue entirely (sign-out). */
-  clear(userId: string): Promise<void>;
+  /** Load the owner's queued entries (empty array when none / unreadable). */
+  load(owner: OutboxOwner): Promise<readonly OutboxEntry[]>;
+  /** Persist the owner's full queue, replacing what was stored (`[]` removes it). */
+  save(owner: OutboxOwner, entries: readonly OutboxEntry[]): Promise<void>;
+  /** Explicitly purge the owner's queue (destructive; never on normal sign-out). */
+  clear(owner: OutboxOwner): Promise<void>;
 }
 
 /** Submit one entry to the server; resolves with the created/replayed event. */
@@ -165,13 +228,20 @@ export function normalizeLoaded(
  * (`queued` → `submitting` → resolved) so a caller can reflect progress and
  * persist incrementally. It never receives `accepted` entries — those are
  * returned separately to hand off to the feed.
+ *
+ * `shouldStop`, if given, is polled before each entry is submitted; when it
+ * returns `true` the drain halts immediately and leaves the remaining entries
+ * `queued`. The React seam uses this to abort a drain whose owner signed out or
+ * switched mid-pass, so a prior owner's captures are never submitted through a
+ * new session (FTY-277).
  */
 export async function drainOutbox(opts: {
   readonly entries: readonly OutboxEntry[];
   readonly submit: OutboxSubmit;
   readonly onChange?: (entries: readonly OutboxEntry[]) => void;
+  readonly shouldStop?: () => boolean;
 }): Promise<DrainResult> {
-  const { entries, submit, onChange } = opts;
+  const { entries, submit, onChange, shouldStop } = opts;
   const working: OutboxEntry[] = entries.map((e) =>
     e.syncState === "submitting" ? { ...e, syncState: "queued" } : e,
   );
@@ -185,6 +255,14 @@ export async function drainOutbox(opts: {
     const entry = working[i];
     if (entry.syncState !== "queued") continue;
     if (stopDraining) continue;
+    // The owner signed out or switched while an earlier submit was in flight:
+    // stop before sending any further entry, leaving it `queued` for this
+    // owner's own next drain. Checked before the submit so no prior-owner entry
+    // is ever submitted through the new session.
+    if (shouldStop?.()) {
+      stopDraining = true;
+      continue;
+    }
 
     working[i] = { ...entry, syncState: "submitting" };
     onChange?.(visible());
