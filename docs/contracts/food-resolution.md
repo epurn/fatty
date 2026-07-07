@@ -176,8 +176,11 @@ URL. With no key the source is disabled and food candidates are left `unresolved
 ### Candidate input
 
 A parsed food candidate's `name`, `unit`, `amount`, and `quantity_text`
-(`parse-candidates.md`). The LLM never supplies nutrition facts; only the food
-**name** (sanitized, normalized) is sent to FDC — never the user's profile, weight,
+(`parse-candidates.md`). A candidate may also carry user-stated nutrition facts in
+its `stated_*` fields (FTY-279) — those feed the `user_text` evidence path
+(`evidence-retrieval.md`), **not** this FDC lookup. Into the FDC request itself the
+parser supplies **no** nutrition facts; only the food **name** (sanitized,
+normalized) is sent to FDC — never the stated facts, the user's profile, weight,
 history, or any other personal context.
 
 ## Outputs
