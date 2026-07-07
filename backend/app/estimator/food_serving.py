@@ -5,7 +5,8 @@ Pure functions, no I/O, no LLM: a candidate's quantity (the parse step's
 canonical calories and macros out. This module owns two deterministic rules:
 
 1. **quantity → grams** (:func:`resolve_grams`) — the v1-simple resolution the story
-   scopes: an explicit mass (grams), a volume (millilitres, treated 1 ml ≈ 1 g),
+   scopes: an explicit mass (grams), a volume (millilitres or a standard household
+   measure — cup/tsp/tbsp/fl oz/… — all treated 1 ml ≈ 1 g, FTY-275),
    or a *count* multiplied by the source's default serving size. A quantity that
    cannot be resolved to grams confidently returns ``None`` so the caller routes to
    ``needs_clarification`` rather than guessing.
@@ -45,9 +46,47 @@ _MASS_UNIT_GRAMS: Final[dict[str, float]] = {
     "pounds": 453.59237,
 }
 
+#: Canonical household-volume-to-millilitre constants (single shared source of
+#: truth, FTY-276). Both this module's grams table below and
+#: ``app.estimator.plausibility``'s ml volume cap derive from this dict, so the
+#: two can no longer silently diverge as units are added or tuned — each stated
+#: household portion ("1/3 cup", "a tsp", "2 tbsp") resolves to the same
+#: millilitre value everywhere. Values are documented tunables (the FDA
+#: nutrition-labeling household measure, 21 CFR 101.9, for tsp/tbsp/fl oz/cup;
+#: US-customary for pint/quart/gallon, which 21 CFR 101.9 does not define):
+#:   tsp    5 ml    — FDA 21 CFR 101.9
+#:   tbsp   15 ml   — FDA 21 CFR 101.9
+#:   fl_oz  30 ml   — FDA 21 CFR 101.9
+#:   cup    240 ml  — FDA labeling cup (US customary 236.6 ml; documented tunable)
+#:   pint   473 ml  — US customary
+#:   quart  946 ml  — US customary
+#:   gallon 3785 ml — US customary
+HOUSEHOLD_VOLUME_UNIT_ML: Final[dict[str, float]] = {
+    "tsp": 5.0,
+    "tbsp": 15.0,
+    "fl_oz": 30.0,
+    "cup": 240.0,
+    "pint": 473.0,
+    "quart": 946.0,
+    "gallon": 3785.0,
+}
+
 #: Grams per recognised **volume** unit, under the documented v1 assumption that
 #: 1 millilitre of a generic food weighs ~1 gram (water density). Refining this per
 #: food density is out of scope for v1.
+#:
+#: The **household / cooking measures** (FTY-275) — ``cup``, ``tsp``, ``tbsp``,
+#: ``fl oz``, ``pint``, ``quart``, ``gallon`` and their common spellings — are settled
+#: standard measures, not guesses, so a stated household portion ("1/3 cup", "a tsp",
+#: "2 tbsp") costs deterministically at that portion instead of stopping at
+#: clarification. Each grams value is its standard millilitre volume (from
+#: ``HOUSEHOLD_VOLUME_UNIT_ML`` above) under the same 1 ml ≈ 1 g assumption (so a
+#: cup of milk vs a cup of flour is *not* density-corrected here — the documented
+#: v1 simplification).
+#: Bare single-letter forms (``t`` / ``T``) are deliberately **excluded** (ambiguous,
+#: and ``T`` / ``t`` collide once lower-cased) — spell them out. Bare ``oz`` stays a
+#: **mass** unit (see ``_MASS_UNIT_GRAMS``, matched first); only the explicit
+#: fluid-ounce spellings are volume.
 _VOLUME_UNIT_GRAMS: Final[dict[str, float]] = {
     "ml": 1.0,
     "milliliter": 1.0,
@@ -60,6 +99,29 @@ _VOLUME_UNIT_GRAMS: Final[dict[str, float]] = {
     "litre": 1000.0,
     "liters": 1000.0,
     "litres": 1000.0,
+    # Household / cooking measures (FTY-275) — grams == standard ml at 1 ml ≈ 1 g.
+    "tsp": HOUSEHOLD_VOLUME_UNIT_ML["tsp"],
+    "teaspoon": HOUSEHOLD_VOLUME_UNIT_ML["tsp"],
+    "teaspoons": HOUSEHOLD_VOLUME_UNIT_ML["tsp"],
+    "tbsp": HOUSEHOLD_VOLUME_UNIT_ML["tbsp"],
+    "tbs": HOUSEHOLD_VOLUME_UNIT_ML["tbsp"],
+    "tablespoon": HOUSEHOLD_VOLUME_UNIT_ML["tbsp"],
+    "tablespoons": HOUSEHOLD_VOLUME_UNIT_ML["tbsp"],
+    "fl oz": HOUSEHOLD_VOLUME_UNIT_ML["fl_oz"],
+    "floz": HOUSEHOLD_VOLUME_UNIT_ML["fl_oz"],
+    "fluid ounce": HOUSEHOLD_VOLUME_UNIT_ML["fl_oz"],
+    "fluid ounces": HOUSEHOLD_VOLUME_UNIT_ML["fl_oz"],
+    "cup": HOUSEHOLD_VOLUME_UNIT_ML["cup"],
+    "cups": HOUSEHOLD_VOLUME_UNIT_ML["cup"],
+    "pint": HOUSEHOLD_VOLUME_UNIT_ML["pint"],
+    "pints": HOUSEHOLD_VOLUME_UNIT_ML["pint"],
+    "pt": HOUSEHOLD_VOLUME_UNIT_ML["pint"],
+    "quart": HOUSEHOLD_VOLUME_UNIT_ML["quart"],
+    "quarts": HOUSEHOLD_VOLUME_UNIT_ML["quart"],
+    "qt": HOUSEHOLD_VOLUME_UNIT_ML["quart"],
+    "gallon": HOUSEHOLD_VOLUME_UNIT_ML["gallon"],
+    "gallons": HOUSEHOLD_VOLUME_UNIT_ML["gallon"],
+    "gal": HOUSEHOLD_VOLUME_UNIT_ML["gallon"],
 }
 
 #: Unit phrases that denote a **count of servings** rather than a measured amount.
