@@ -404,9 +404,13 @@ field(s):
    are `as_logged`, the serving math does **not** scale them — the stated total is the
    consumed-quantity total. No global `products` cache row is written (per-entry facts;
    `product_id` is `NULL`).
-3. **Fill missing macros honestly.** A macro the user did not state is either
-   **estimated** from the item identity (recorded `field_provenance = estimated`, the
-   reason in `assumptions`) or left **unknown/`null`** — **never** silently stored as a
+3. **Fill missing macros honestly.** A macro the user did not state is **estimated**
+   from the item identity in the fixed order defined by `evidence-retrieval.md`
+   (**Estimating a missing field**) — source-backed lookup on a sanitized item-identity
+   query first, then comparable-source aggregation as rough reference evidence (source
+   refs + compatibility + plausibility/outlier filtering), then a pure model prior —
+   recorded `field_provenance = estimated` with the reason in `assumptions`; or left
+   **unknown/`null`** when no credible estimate survives — **never** silently stored as a
    user-supplied `0`. An unknown macro (`null`) stays distinct from a real `0 g` at
    item detail/provenance (`daily-summary.md`).
 

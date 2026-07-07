@@ -258,9 +258,11 @@ not macros. Each nutrition field carries its own provenance via the record's
 `field_provenance` map:
 
 - **user-stated fields** are evidence-backed user-provided facts (`user_stated`);
-- **missing fields may be estimated** from the model prior or reference evidence
+- **missing fields may be estimated** — source-backed lookup first, then
+  comparable-source aggregation (rough reference evidence), then the model prior —
   **when a usable identity exists** (`estimated`), with the estimate's
-  assumptions/provenance recorded — never presented as a user-provided fact;
+  assumptions/provenance recorded — never presented as a user-provided fact (see
+  **Estimating a missing field** below);
 - **missing fields may instead remain unknown/`null`** (`unknown`) when no credible
   estimate is produced;
 - an **unknown** macro (`null`) is **not** the same as a **zero** macro (`0 g`) — the
@@ -270,6 +272,50 @@ not macros. Each nutrition field carries its own provenance via the record's
 For the fields the user stated, `user_text` **outranks** any external lookup
 (evidence-first, **Fallback Rule**); missing fields fall to a lower tier with their
 own provenance.
+
+### Estimating a missing field (source-backed lookup → comparable-source aggregation → model prior)
+
+A field the user did not state (a missing macro on a `user_text` calorie item, or any
+other absent field) is filled in a **fixed preference order**, so a real number is
+never invented while better evidence is still reachable:
+
+1. **Source-backed lookup first.** When a **sanitized item-identity query** exists
+   (`sanitize_query`, item identity only — **Search Request / Response Boundary**), a
+   single confident match from the source tiers (official / product / trusted-database /
+   reference) fills the field before any model prior is consulted. This is the same
+   evidence-before-`model_prior` guarantee as the **Fallback Rule**, applied per missing
+   field: `field_provenance = estimated` with the source's `source_ref` recorded.
+2. **Comparable-source aggregation — rough reference evidence.** When no single source
+   confidently resolves the field but several comparable references exist, the estimator
+   may derive a **rough reference estimate** by aggregating the comparable facts. This
+   aggregate is explicitly **reference-grade, not an authoritative source fact**: it
+   ranks **below** a single-source match and **above** a pure model prior, and it is
+   bounded by three guardrails so it can never become provenance-free averaging:
+   - **Source refs, always.** The aggregate names **every** contributing source
+     (`source_ref` list in `assumptions`) — it is never a single anonymous blended
+     number. A client can see it was averaged from N named references.
+   - **Compatibility checks.** Only facts for a **comparable item on a comparable
+     basis** are aggregated — normalized to the same canonical basis (per-100g) and
+     restricted to the same food identity/kind. An incompatible-basis or unrelated-item
+     fact is **excluded**, never blended in.
+   - **Plausibility / outlier filtering.** Contributing values must pass the same
+     plausibility bound used for source facts (FTY-115/132, canonical per-100g space);
+     values outside the bound, or that are statistical **outliers** relative to the
+     sample, are **dropped before** aggregation, so one bad reference cannot skew the
+     result. If too few comparable, plausible references survive, the aggregate is **not
+     produced** — the field falls through to step 3 rather than averaging noise.
+   The result is recorded `field_provenance = estimated` with the aggregation method and
+   the contributing `source_ref` list in `assumptions` — never presented as a
+   user-stated or single-source fact.
+3. **Model prior last.** Only when neither a source-backed lookup nor a plausible
+   comparable-source aggregate is available does the field fall to a pure `model_prior`
+   estimate (`field_provenance = estimated`, the reason in `assumptions`), or remain
+   **unknown/`null`** when no credible estimate is produced.
+
+The recipe (ingredient-sum) and similar-dish sources reserved in the **Source
+Hierarchy** are the future authoritative form of this reference tier; comparable-source
+aggregation is the interim rough-reference evidence with the guardrails above, not a
+licence to average provenance-free.
 
 ### Validation (bounded, plausibility-checked, fail-closed)
 
