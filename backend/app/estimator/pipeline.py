@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from app.estimator.food_step import BarcodeResolver, FoodResolver
     from app.estimator.label_step import LabelInput
     from app.estimator.official_step import OfficialSourceResolveStep
+    from app.estimator.user_text_step import UserTextResolveStep
     from app.llm.base import Provider
 
 
@@ -118,6 +119,17 @@ class CandidateDraft:
     #: then a model-prior fallback) instead of stopping at ``needs_clarification``.
     #: ``None`` for a generic food.
     brand: str | None = None
+    #: Explicit nutrition facts the user stated in the entry text for this item
+    #: (FTY-279/FTY-280): an as-logged calorie total and/or macro grams, carried
+    #: verbatim from the parse (``stated_*`` on the schema candidate) as untrusted
+    #: evidence. A candidate whose ``stated_calories`` is present resolves from the
+    #: rank-1 ``user_text`` tier (``user_text_step.py``) rather than USDA/OFF; the
+    #: food step validates plausibility before any of it backs a persisted number.
+    #: ``None`` when the user stated no such fact.
+    stated_calories: float | None = None
+    stated_protein_g: float | None = None
+    stated_carbs_g: float | None = None
+    stated_fat_g: float | None = None
 
 
 @dataclass(frozen=True)
@@ -192,23 +204,43 @@ class ResolvedFoodItem:
     quantity_text: str
     unit: str | None
     amount: float | None
-    grams: float
+    #: Resolved portion mass; ``None`` for a ``user_text`` ``as_logged`` item, which
+    #: has no mass (the user gave a calorie total, not a quantity — FTY-280).
+    grams: float | None
     calories: float
-    protein_g: float
-    carbs_g: float
-    fat_g: float
+    #: Canonical macros; ``None`` when *unknown* — a ``user_text`` macro the user did
+    #: not state and the estimator did not fill (FTY-279), kept distinct from a real
+    #: ``0 g``. A database/label/official/reference source always supplies all three.
+    protein_g: float | None
+    carbs_g: float | None
+    fat_g: float | None
     product_id: uuid.UUID | None
     source_type: str
     source_ref: str
     content_hash: str
     fetched_at: datetime
-    calories_per_100g: float
-    protein_per_100g: float
-    carbs_per_100g: float
-    fat_per_100g: float
+    calories_per_100g: float | None
+    protein_per_100g: float | None
+    carbs_per_100g: float | None
+    fat_per_100g: float | None
     #: Documented assumptions behind this resolution (e.g. the model-prior fallback
     #: reason). Empty for a deterministic database source.
     assumptions: tuple[str, ...] = ()
+    #: What the immutable fact snapshot is expressed against (``evidence-retrieval.md``
+    #: normalized-fact schema): ``per_100g`` for a database/label/official/reference
+    #: source (the default, scaled by the serving math), or ``as_logged`` for a
+    #: user-stated total (FTY-279/FTY-280) that is *already* the consumed-quantity
+    #: total and must **not** be re-scaled. On an ``as_logged`` item the snapshot
+    #: columns hold the as-logged totals (calories the user stated; a macro is the
+    #: estimated total or ``None`` when unknown), disambiguated by this basis — never
+    #: reinterpreted as a per-100g density.
+    basis: str = "per_100g"
+    #: Per-field provenance when a record's fields have heterogeneous origins
+    #: (FTY-279): maps ``calories`` / ``protein_g`` / ``carbs_g`` / ``fat_g`` to
+    #: ``user_stated`` / ``estimated`` / ``unknown``. ``None`` when every present field
+    #: shares this record's ``source_type`` (the database/label/official/reference
+    #: case, unchanged).
+    field_provenance: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -404,6 +436,7 @@ def default_pipeline(
     food_resolver: FoodResolver | None = None,
     barcode_resolver: BarcodeResolver | None = None,
     official_step: OfficialSourceResolveStep | None = None,
+    user_text_step: UserTextResolveStep | None = None,
 ) -> Pipeline:
     """Build the v1 estimation pipeline: NL parse, exercise calc, food resolution.
 
@@ -434,6 +467,13 @@ def default_pipeline(
 
     steps: list[EstimationStep] = [ParseStep(provider), ExerciseCalculateStep()]
     if food_resolver is not None:
+        # The user-text step (FTY-280) runs *before* the food step: it is the rank-1
+        # ``user_text`` tier, so a candidate the user stated a calorie total for is
+        # resolved from that evidence and removed from the food candidates the food
+        # step then resolves from USDA/OFF. Wired only alongside the food step (it
+        # produces the same resolved-item/evidence shape the worker persists).
+        if user_text_step is not None:
+            steps.append(user_text_step)
         steps.append(FoodResolveStep(food_resolver, barcode_resolver=barcode_resolver))
         # The official-source resolver only acts on candidates the food step deferred,
         # so it is wired in only alongside the food step.

@@ -575,6 +575,14 @@ event.raw_text = "crackers and peanut butter"        # count genuinely indetermi
   **User-Stated Nutrition Evidence**), and let a calorie-only item count in
   `daily-summary.md`. The estimator/parser implementation is the downstream FTY-280
   follow-up; the FTY-278/FTY-275 baseline ships until it lands.
+- **FTY-280 (implements FTY-279).** The parser now extracts the `stated_*` fields
+  (bounded by `MAX_STATED_ENERGY_KCAL` / `MAX_STATED_MACRO_G`, `allow_inf_nan=False`
+  so a non-finite value is schema-invalid), a stated nutrition fact is a
+  `has_stated_nutrition` detail signal, and the food step resolves a stated calorie
+  total from the `user_text` tier (`backend/app/estimator/user_text_step.py`). Still
+  **no** `derived_*` parse-persistence column (consumed at resolution time, like
+  `brand`); the additive evidence-layer migration is `evidence-retrieval.md` /
+  `food-resolution.md`'s `0018`.
 - **FTY-278 (contract only; no code, no migration in this story).** Adds the
   nullable `clarification_questions.derived_food_item_id` reference — an
   **internal** producer→estimator link, **not** surfaced in the clarification read

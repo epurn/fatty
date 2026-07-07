@@ -1014,3 +1014,78 @@ def test_plausible_reply_parses_unchanged() -> None:
     assert len(context.food_candidates) == 2
     assert {c.name for c in context.food_candidates} == {"oatmeal", "banana"}
     assert context.clarification_questions == []
+
+
+# --- user-stated nutrition extraction (FTY-279/FTY-280) ---------------------------
+
+
+def test_stated_nutrition_facts_are_carried_onto_the_candidate() -> None:
+    # A stated calorie total and macro are extracted verbatim onto the food candidate
+    # (untrusted evidence the food step later validates); an unstated field stays None.
+    provider = FakeProvider(
+        responses=_sampled(
+            _parsed(
+                [
+                    {
+                        "type": "food",
+                        "name": "buffalo chicken wrap",
+                        "brand": "Sobeys",
+                        "quantity_text": "1",
+                        "stated_calories": 580.0,
+                        "stated_protein_g": 35.0,
+                    }
+                ]
+            )
+        )
+    )
+    context = _context("Sobeys wrap (580 cals 35g protein)")
+
+    _run(provider, context)
+
+    assert len(context.food_candidates) == 1
+    candidate = context.food_candidates[0]
+    assert candidate.stated_calories == 580.0
+    assert candidate.stated_protein_g == 35.0
+    assert candidate.stated_carbs_g is None
+    assert candidate.stated_fat_g is None
+    assert context.clarification_questions == []
+
+
+def test_stated_calorie_fact_is_a_detail_signal_that_avoids_clarification() -> None:
+    # A conservative (low verbalized confidence) reply whose only detail is a stated
+    # calorie total is estimated, not asked about — the stated fact is a detail signal.
+    reply = _parsed(
+        [
+            {
+                "type": "food",
+                "name": "buffalo chicken wrap",
+                "quantity_text": "1",
+                "stated_calories": 580.0,
+            }
+        ],
+        confidence=0.2,
+    )
+    provider = FakeProvider(responses=_sampled(reply))
+    context = _context("a wrap, 580 cals")
+
+    _run(provider, context)
+
+    assert [c.name for c in context.food_candidates] == ["buffalo chicken wrap"]
+    assert context.food_candidates[0].stated_calories == 580.0
+    assert context.clarification_questions == []
+
+
+def test_negative_stated_calories_is_schema_invalid_and_fails_closed() -> None:
+    provider = FakeProvider(
+        responses=_sampled(
+            _parsed(
+                [{"type": "food", "name": "wrap", "quantity_text": "1", "stated_calories": -5.0}]
+            )
+        )
+    )
+    context = _context("a wrap")
+
+    with pytest.raises(StepFailed) as exc:
+        _run(provider, context)
+    assert exc.value.reason == "schema_validation_failed"
+    assert context.food_candidates == []

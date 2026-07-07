@@ -45,7 +45,11 @@ from dataclasses import dataclass
 
 from app.enums import CandidateType
 from app.estimator.clarify_policy import NL_PARSE_CLARIFY_POLICY
-from app.estimator.detail_signals import has_food_detail, parse_range_midpoint
+from app.estimator.detail_signals import (
+    has_food_detail,
+    has_stated_nutrition,
+    parse_range_midpoint,
+)
 from app.estimator.exercise import has_exercise_detail
 from app.estimator.parse_prompt import build_parse_prompt
 from app.estimator.pipeline import (
@@ -294,6 +298,10 @@ def _to_draft(item: ParsedCandidate) -> CandidateDraft:
         amount=item.amount,
         barcode=item.barcode,
         brand=item.brand,
+        stated_calories=item.stated_calories,
+        stated_protein_g=item.stated_protein_g,
+        stated_carbs_g=item.stated_carbs_g,
+        stated_fat_g=item.stated_fat_g,
     )
 
 
@@ -317,7 +325,12 @@ def _candidate_has_detail(item: ParsedCandidate) -> bool:
 
     if item.type is CandidateType.EXERCISE:
         return has_exercise_detail(item.unit, item.amount, item.quantity_text)
-    return has_food_detail(item.amount, item.quantity_text)
+    return has_food_detail(item.amount, item.quantity_text) or has_stated_nutrition(
+        item.stated_calories,
+        item.stated_protein_g,
+        item.stated_carbs_g,
+        item.stated_fat_g,
+    )
 
 
 def _clarification_questions(

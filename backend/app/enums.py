@@ -295,6 +295,10 @@ class SourceType(StrEnum):
     PRODUCT_DATABASE = "product_database"
     OFFICIAL_SOURCE = "official_source"
     USER_LABEL = "user_label"
+    #: Explicit nutrition facts the user stated in the log entry text (FTY-279/280),
+    #: rank 1 — distinct from ``user_label`` (scanned) so a client can tell a typed
+    #: number from a scanned one.
+    USER_TEXT = "user_text"
     REFERENCE_SOURCE = "reference_source"
     MODEL_PRIOR = "model_prior"
 

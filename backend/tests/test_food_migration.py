@@ -107,6 +107,32 @@ def test_evidence_assumptions_applies_and_rolls_back(tmp_path: Path) -> None:
         engine.dispose()
 
 
+def test_evidence_user_text_basis_applies_and_rolls_back(tmp_path: Path) -> None:
+    # FTY-280: the additive ``basis`` + ``field_provenance`` columns apply, the
+    # per-100g snapshot columns become nullable (so an unknown user-stated macro is
+    # NULL, not a fake 0), and the whole migration rolls back cleanly.
+    engine = create_db_engine(f"sqlite:///{tmp_path / 'user_text.db'}")
+    try:
+        upgrade(engine, "head")
+        columns = {c["name"]: c for c in inspect(engine).get_columns("evidence_sources")}
+        assert "basis" in columns
+        assert "field_provenance" in columns
+        assert columns["basis"]["nullable"] is False
+        # The fact-snapshot columns are now nullable (unknown macro ≠ zero).
+        for name in ("calories_per_100g", "protein_per_100g", "carbs_per_100g", "fat_per_100g"):
+            assert columns[name]["nullable"] is True
+
+        downgrade(engine, "0017")
+        rolled_back = {c["name"]: c for c in inspect(engine).get_columns("evidence_sources")}
+        assert "basis" not in rolled_back
+        assert "field_provenance" not in rolled_back
+        # The snapshot columns are re-tightened to NOT NULL and the table survives.
+        assert rolled_back["calories_per_100g"]["nullable"] is False
+        assert "evidence_sources" in set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+
 def test_evidence_sources_carries_user_ownership_and_cascades(tmp_path: Path) -> None:
     engine = create_db_engine(f"sqlite:///{tmp_path / 'evidence.db'}")
     try:

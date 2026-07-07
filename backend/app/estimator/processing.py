@@ -63,6 +63,7 @@ from app.estimator.pipeline import (
 )
 from app.estimator.reference_fetch import load_reference_fetch_settings
 from app.estimator.search import build_search_provider
+from app.estimator.user_text_step import UserTextMacroEstimator, UserTextResolveStep
 from app.llm import build_provider, load_llm_settings
 from app.models.derived import (
     ClarificationAnswer,
@@ -250,17 +251,30 @@ def process_estimation(
             # clients/adapters makes no network call.
             resolver = FoodResolver(session=session, source=build_fdc_client())
             barcode_resolver = BarcodeResolver(session=session, source=build_off_client())
+            search_provider = build_search_provider()
+            reference_fetch_settings = load_reference_fetch_settings()
             official_step = OfficialSourceResolveStep(
                 provider=provider,
-                search_provider=build_search_provider(),
+                search_provider=search_provider,
                 fetch_settings=load_official_fetch_settings(),
-                reference_fetch_settings=load_reference_fetch_settings(),
+                reference_fetch_settings=reference_fetch_settings,
+            )
+            # The user-text tier (FTY-280) resolves a stated calorie total directly and
+            # fills its missing macros from the same reference search/fetch path before
+            # the model prior. It runs before the food step (rank 1).
+            user_text_step = UserTextResolveStep(
+                macro_estimator=UserTextMacroEstimator(
+                    provider=provider,
+                    search_provider=search_provider,
+                    reference_fetch_settings=reference_fetch_settings,
+                )
             )
             pipeline = default_pipeline(
                 provider,
                 food_resolver=resolver,
                 barcode_resolver=barcode_resolver,
                 official_step=official_step,
+                user_text_step=user_text_step,
             )
 
     # Enforce ownership before any write: a missing or cross-user event fails
@@ -553,8 +567,15 @@ def _persist_resolved_food(
                 protein_per_100g=item.protein_per_100g,
                 carbs_per_100g=item.carbs_per_100g,
                 fat_per_100g=item.fat_per_100g,
-                # Documented assumptions (e.g. the model-prior fallback reason); a
-                # deterministic database source carries none, stored as NULL.
+                # What the fact snapshot is expressed against: ``per_100g`` for a
+                # scaled source, ``as_logged`` for a user-stated total (FTY-280).
+                basis=item.basis,
+                # Per-field origin map for a heterogeneous (user-stated + estimated/
+                # unknown) record; ``None`` for a single-origin source.
+                field_provenance=item.field_provenance,
+                # Documented assumptions (e.g. the model-prior fallback reason, or a
+                # per-field estimate source); a deterministic database source carries
+                # none, stored as NULL.
                 assumptions=list(item.assumptions) or None,
             )
         )
