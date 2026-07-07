@@ -35,6 +35,23 @@ estimator / backend-core / contracts lane:
 
 ## Version
 
+3 (FTY-278, contract only): the answer-triggered re-estimate under **item-scoped
+partial resolution**. A `needs_clarification` event may now carry committed
+`resolved` derived items (the costable siblings of a mixed log —
+`food-resolution.md` v9, `log-events.md` v6); answering an **item-scoped**
+question re-estimates the same event and must **preserve those siblings** without
+re-costing, duplicating, or double-counting them. The v2 job/run mechanics
+(re-open the terminal job, cumulative attempts, commit-first enqueue, redelivery
+idempotency) are **unchanged**; this version adds one rule on the pipeline's
+terminal write — the event's derived-item **set is rebuilt atomically** each round
+so each component (resolved or still-unresolved) is represented exactly once. No
+schema change (`estimation_jobs` / `estimation_runs` untouched). This settles the
+mechanics only; the estimator implementation is the **downstream FTY-278
+follow-up**, and until it lands a `needs_clarification` event carries no committed
+siblings (the FTY-275 baseline) so the re-estimate is the v2 event-level
+round-trip unchanged. See
+[Answer-triggered re-estimate](#answer-triggered-re-estimate-fty-171).
+
 2 (FTY-171): the **answer-triggered re-estimate**. The clarification answer
 (`log-events.md` v4) re-opens a job terminal in `needs_clarification` so the
 same event can be estimated again with the user's accumulated answers as
@@ -161,6 +178,22 @@ in the one transaction that persists the `clarification_answers` row:
   a no-op. The re-open itself is idempotent per question — the unique
   `question_id` on `clarification_answers` is the anchor; a replayed answer
   neither re-opens nor re-enqueues.
+- **Resolved siblings preserved, never double-counted (FTY-278, contract only):**
+  when the event carries committed `resolved` siblings from an earlier round
+  (the item-scoped partial state — `log-events.md` v6, `food-resolution.md` v9),
+  the re-estimate **rebuilds the event's derived-item set atomically** in the
+  terminal transaction rather than appending to it: each component — a resolved
+  sibling or the newly-answered one — is represented exactly once, so a sibling
+  is never re-costed into a duplicate row or counted twice. During the
+  `processing` window the event has no *terminal* committed set (a `processing`
+  event is excluded from every finalized read — `daily-summary.md`), so intake
+  never flickers; the fresh set (siblings still `resolved`, the answered
+  component now `resolved` or, if still indeterminate, keeping its own
+  item-scoped question) is what commits with the round's terminal status. When
+  the last unresolved component resolves the event reaches `completed` with the
+  full costed set. This is the target contract; the sibling-persisting estimator
+  work is the downstream FTY-278 follow-up. Under the FTY-275 baseline the event
+  carries no committed siblings, so this reduces to the v2 event-level rebuild.
 
 ## Retry policy
 
@@ -256,3 +289,12 @@ POST /api/users/{uid}/log-events  →  201 pending event
   redelivery idempotency for queue-delivered tasks is preserved because the
   worker itself never re-opens a terminal job. See
   [Answer-triggered re-estimate](#answer-triggered-re-estimate-fty-171).
+- **v3 (FTY-278, contract only; no migration).** Adds the sibling-preserving,
+  set-rebuild rule for the answer-triggered re-estimate so a mixed log's costable
+  components can be committed on a `needs_clarification` event and preserved across
+  clarification rounds without duplication or double-counting. The v1/v2 claim →
+  run → transition, idempotency, ownership, and retry contracts are unchanged, and
+  `estimation_jobs` / `estimation_runs` are untouched (the item↔question link is
+  `clarification_questions.derived_food_item_id`, `parse-candidates.md` v5's
+  additive column). The estimator implementation is the downstream FTY-278
+  follow-up; the FTY-275 baseline ships until then.

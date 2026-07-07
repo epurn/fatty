@@ -37,6 +37,24 @@ estimator / contracts / backend-core lane:
 
 ## Version
 
+5 (FTY-278, contract only): defines the **item-scoped** clarification carrier for
+a mixed food log. A clarification question may now name the **specific unresolved
+component** it is about via a nullable `derived_food_item_id` reference on
+`clarification_questions` (→ `derived_food_items.id`, `ON DELETE CASCADE`), so the
+estimator can commit an entry's costable components as `resolved` items while a
+single amountless component keeps its own question — the parse/food step no longer
+has to discard the whole entry's costing to ask one question. An **event-level**
+question (parse-time ambiguity not tied to one component) leaves the reference
+`NULL`, so the existing shape is a strict superset and every current question is
+representable unchanged. This version **settles the schema/routing contract only**;
+the additive, reversible migration that adds the column and the estimator changes
+that populate it and persist resolved siblings are a **downstream implementation
+follow-up** (see Migration / Compatibility). Until then, the shipped behaviour is
+the **FTY-275 baseline**: a genuinely amountless component still routes the whole
+event to an event-level `needs_clarification` and persists no candidates. The
+answer flow, read shape, and counting semantics are `log-events.md` v6,
+`estimation-jobs.md` v3, and `daily-summary.md`.
+
 4 (FTY-172): the estimator now **produces** the FTY-170 clarification-with-options
 shape and records schema version `parse/v2`. Model-raised clarification output is
 treated as low-quality and fails closed unless each question has specific
@@ -135,12 +153,18 @@ clarification quick-pick options (additive; no prior user data is required):
   `log_event_id` (FK, cascade, indexed), `user_id` (FK, cascade, indexed),
   `question_text`, `options` (JSON array of strings, not null, default `[]` —
   the question's quick-pick candidates, stored exactly as schema-validated;
-  added by FTY-172's `0017` migration), `position` (int, stable
-  order), `created_at`/`updated_at`. The stored `question_text` + `options`
-  are what the clarification read serves (`log-events.md`), so the producer
-  (this step) and the reader share one shape field-for-field. Questions the
-  backend synthesises deterministically — the plausibility gate's targeted
-  question — carry 2–5 quick-pick options.
+  added by FTY-172's `0017` migration), `derived_food_item_id` (**nullable** FK →
+  `derived_food_items.id`, `ON DELETE CASCADE`, indexed — the specific unresolved
+  component an item-scoped question is about; `NULL` for an event-level question;
+  added by the FTY-278 implementation follow-up's additive migration), `position`
+  (int, stable order), `created_at`/`updated_at`. The stored `question_text` +
+  `options` are what the clarification read serves (`log-events.md`), and
+  `derived_food_item_id` is surfaced there as the question's `item_id`, so the
+  producer (this step) and the reader share one shape field-for-field. Questions
+  the backend synthesises deterministically — the plausibility gate's targeted
+  question — carry 2–5 quick-pick options. An item-scoped question names its
+  component through `derived_food_item_id` and the component's own sanitized
+  `name`, **never** by copying the raw diary phrase into `question_text`.
 
 ## Outputs / Routing
 
@@ -277,6 +301,23 @@ answered questions and their `clarification_answers` are preserved, since they
 carry the accumulated details the re-estimate consumes — so the clarification
 read (status-gated to `needs_clarification`; `log-events.md`) serves exactly
 the fresh round's open questions.
+
+**Item-scoped partial clarification (FTY-278, contract only).** Under the
+item-scoped contract, a mixed entry is not all-or-nothing: the step commits the
+entry's **costable** components as `resolved` items (via the downstream food
+step, `food-resolution.md`) and raises a clarification only for the component(s)
+that are genuinely amountless, each question carrying its
+`derived_food_item_id`. Such a `needs_clarification` event therefore carries
+committed `resolved` siblings alongside its open item-scoped questions — the
+whole event's derived-item set (resolved siblings + the `unresolved` component)
+and its question rows are committed atomically as one set. A re-estimate rebuilds
+that set atomically each round, so a resolved sibling is represented exactly once
+and never duplicated or double-counted, and the fresh round's questions replace
+only the **unanswered** ones (`estimation-jobs.md` v3, `daily-summary.md`). This
+paragraph is the target contract; the estimator work to persist siblings and
+populate `derived_food_item_id` is the FTY-278 implementation follow-up. The
+**FTY-275 baseline** — whole-event, event-level clarification with nothing
+committed — is what ships until then.
 
 ### Detail-signal routing override (FTY-167)
 
@@ -430,3 +471,15 @@ event.raw_text = "crackers and peanut butter"        # count genuinely indetermi
   omits them validates unchanged (they default to `null`), and they are stored as data
   only. `brand` drives official-source routing (`food-resolution.md`); it adds no
   persistence column of its own (it is consumed at resolution time).
+- **FTY-278 (contract only; no code, no migration in this story).** Adds the
+  nullable `clarification_questions.derived_food_item_id` reference (surfaced as
+  `item_id` in the clarification read) so a question can be item-scoped. The
+  column and its migration are **additive and reversible** (existing questions
+  default it to `NULL` and remain valid event-level questions; no backfill), but
+  they are **owned by the downstream FTY-278 implementation follow-up**, not this
+  spec — this version fixes the shape and routing so that story and the backend
+  read/answer story (`log-events.md` v6, `estimation-jobs.md` v3,
+  `daily-summary.md`) build to one agreed contract. No existing `ParseResult`
+  field, `ClarificationQuestion` shape, or column semantics change; the FTY-275
+  baseline (whole-event event-level clarification, nothing committed) ships until
+  the follow-up lands.

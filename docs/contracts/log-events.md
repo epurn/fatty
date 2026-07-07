@@ -39,6 +39,41 @@ backend-core / contracts lane (`backend/app/models/log_events.py`,
 
 ## Version
 
+6 (FTY-278): defines the **item-scoped partial clarification** contract for a
+mixed food log — a **pre-v1 breaking redefinition** of the `needs_clarification`
+event, with no back-compat shim. Before FTY-278 a `needs_clarification` event was
+terminal-with-nothing-committed: if any component of a mixed log could not be
+costed, the *whole* entry waited on a question and no item was persisted. FTY-278
+makes clarification **item-scoped**: the costable components of the entry are
+committed as `resolved` derived items (and counted — see `daily-summary.md`) while
+a **specific unresolved component** owns the open question. Concretely this story
+settles four contract points and cross-links the affected contracts:
+
+1. **Event status** — `needs_clarification` MAY now carry committed `resolved`
+   items alongside its open questions (the partial state); the state-machine
+   transitions are unchanged.
+2. **Question → component reference** — each item-scoped clarification question
+   names the specific unresolved component by a stable `derived_food_item_id`
+   reference (see `parse-candidates.md`), never by echoing the raw diary phrase;
+   the clarification read surfaces that reference as `item_id` so the client
+   associates the question with the resolved/unresolved item rows it already
+   renders.
+3. **Partial read exposure** — the day-listing read returns a partial event's
+   committed `resolved` items (its event-status gate relaxes from `completed`-only
+   to `completed` **or** `needs_clarification`); the open question remains
+   discoverable through the status-gated clarification read.
+4. **Answer flow** — answering an item-scoped question re-estimates the **same**
+   event, preserves the already-resolved siblings, and completes the entry when
+   the last component resolves, with no double-counting or duplicate item rows
+   (the job/run mechanics are `estimation-jobs.md` v3).
+
+**This version is a contract decision only; it edits no product code.** The
+downstream estimator/backend implementation is a required follow-up split (called
+out under Migration / Compatibility). Until it lands, the shipped behaviour is the
+**FTY-275 baseline**: a genuinely amountless component still routes the whole event
+to an event-level `needs_clarification` with nothing committed (`food-resolution.md`
+v8/v9).
+
 5 (FTY-198): adds the **day-listing read** —
 `GET /api/users/{user_id}/log-events/by-date?day=YYYY-MM-DD` — which returns an
 oldest-first list of entries for one profile-timezone calendar day. Each entry
@@ -211,13 +246,24 @@ clarification answer):
 
 `items` uses the shared `DerivedFoodItemDTO | DerivedExerciseItemDTO` shape from
 `corrections.md` / `daily-summary.md`, but only for finalized item detail: the
-owning event must be `completed`, the item must be `resolved`, and its costed
-value must be present (`calories` for food, `active_calories` for exercise). A
-pending, processing, failed, needs_clarification, or completed-with-no-finalized-item
+owning event must be `completed` **or** `needs_clarification` (the FTY-278 partial
+state), the item must be `resolved`, and its costed value must be present
+(`calories` for food, `active_calories` for exercise). This mirrors the
+`daily-summary.md` finalized-state filter exactly — a `resolved`, costed item is
+surfaced whether it is the whole of a `completed` entry or a **costable sibling of
+a partially-clarified `needs_clarification` entry**, so a mixed log's resolved
+components appear in place while its unresolved component's question stays open. A
+pending, processing, failed, or completed/clarification-with-no-finalized-item
 event is still returned with `items: []`, matching the Today timeline's status-row
-fallback. Non-finalized item rows remain persisted with their own `status`
-(`unresolved` / `proposed`) and nullable values, but they are not included in this
-read until they become finalized.
+fallback. Non-finalized item rows — including the **unresolved component** that
+owns an item-scoped question — remain persisted with their own `status`
+(`unresolved` / `proposed`) and nullable values but are **not** included in this
+read; that component is instead discoverable through the status-gated
+clarification read (its question carries the component's `item_id`), so the
+`items` array stays "finalized costed detail only" and never surfaces an
+uncosted placeholder row. (Under the FTY-275 baseline a `needs_clarification`
+event carries no committed items, so it still returns `items: []` until the
+FTY-278 follow-up lands.)
 - **Get-by-id** → `200` with the event DTO.
 
 The DTO does **not** echo `idempotency_key`: it is a write-only request token with
@@ -286,20 +332,31 @@ field.
 The response carries a `needs_clarification` event's **unanswered** questions,
 ordered by `position` (the read is **status-gated** — see below). Each
 question carries its persisted row's stable `id` (the key an answer submission
-references), the specific question `text`, and an `options` array of candidate
-quick-pick values:
+references), the specific question `text`, an `options` array of candidate
+quick-pick values, and — for an **item-scoped** question (FTY-278) — an `item_id`
+naming the specific unresolved derived component the question is about:
 
 ```json
 {
   "questions": [
     {
       "id": "b9c1…",
-      "text": "How many cracker sandwiches?",
-      "options": ["2", "4", "6"]
+      "text": "How much milk?",
+      "options": ["a splash", "1/2 cup", "1 cup"],
+      "item_id": "e4a2…"
     }
   ]
 }
 ```
+
+- **`item_id` is the target unresolved component (FTY-278).** The
+  `derived_food_items.id` of the persisted `unresolved` component this question
+  clarifies (see `parse-candidates.md`), so a client attaches the question to the
+  exact item row it already renders — scoped to that component, not the whole
+  entry. It is `null` for an **event-level** question (parse-time ambiguity not
+  tied to one component — including every question under the FTY-275 baseline,
+  where no component is individually costed). It never contains the raw diary
+  phrase; the human context is the referenced component's own sanitized `name`.
 
 - **Options are display candidates, never an enum.** They exist so the client
   can render one-tap chips; the server never validates an answer against
@@ -396,6 +453,24 @@ genuinely indeterminate, the estimator raises a **fresh** clarification round
 (`processing → needs_clarification`, with new question rows replacing the
 unanswered ones); otherwise the event completes and starts counting.
 
+**Item-scoped resolution preserves the resolved siblings (FTY-278).** When the
+answered question is item-scoped (it carries an `item_id`), the answer supplies
+the missing portion for **that one component**; the re-estimate must not
+re-ask for, re-cost, or duplicate the components already resolved in an earlier
+round. The re-estimate rebuilds the event's derived items **as a set** within
+its terminal transaction — resolved siblings are represented exactly once and
+their committed values are unchanged, and only the newly-answered component is
+advanced from `unresolved` to `resolved` (or, if the enriched input is still
+indeterminate, it keeps its own item-scoped question in the fresh round while
+the siblings stay resolved). Because `intake` sums the event's `resolved` items
+and the event's item set is replaced atomically per round, a component resolved
+in an earlier round can never be **double-counted** or spawn a **duplicate**
+row (the job/run mechanics are `estimation-jobs.md` v3; the counting rule is
+`daily-summary.md`). When the final unresolved component resolves, the event
+reaches `completed` with the full costed set. **Baseline:** until the FTY-278
+implementation lands, a `needs_clarification` event carries no committed
+siblings, so the answer flow is the event-level FTY-170 round-trip unchanged.
+
 **Idempotent on retry (first-write-wins per question).** The unique
 `question_id` on the persisted answer is the idempotency anchor, mirroring the
 FTY-096 create semantics with the question id in the role of the key:
@@ -467,6 +542,16 @@ The estimator stories drive the `processing` / `failed` / `needs_clarification`
 transitions by reusing this map. The clarification answer (FTY-170, above) is
 the user-driven trigger for the already-legal `needs_clarification →
 processing` transition; it adds no new status and no new transition.
+
+**FTY-278 adds no status and no transition either — it changes what a
+`needs_clarification` event may *carry*.** Before FTY-278 the status implied "no
+committed items"; under the item-scoped partial contract a `needs_clarification`
+event MAY carry committed `resolved` derived items (the costable siblings of a
+mixed log) alongside its open item-scoped question. The costable items are
+committed in the same terminal transaction as the `processing →
+needs_clarification` transition — the same atomicity the `processing →
+completed` path already uses (`food-resolution.md`). The transitions in the map
+above are unchanged.
 
 This is the **event** status vocabulary. The separate **derived-item** status
 vocabulary (`DerivedItemStatus`: `unresolved` / `resolved`, plus `proposed` added
@@ -644,3 +729,22 @@ curl -sX POST :8000/api/users/<uid>/log-events/<event_id>/clarification/answers 
   parse contract's (`parse-candidates.md` v2, `0017` with FTY-172); the
   `clarification_answers` table, the new read shape, and the answer round-trip
   are FTY-171; the mobile clarify sheet (FTY-153) consumes both new shapes.
+- **FTY-278 (contract only; breaking, pre-v1, no shim).** Redefines
+  `needs_clarification` to permit committed `resolved` siblings, adds the
+  clarification read's `item_id` target-component field, relaxes the day-listing
+  read's event-status gate to include `needs_clarification`, and specifies the
+  sibling-preserving answer re-estimate. **No code, no migration, and no read/DTO
+  change land in this story** — it settles the semantics only. The downstream
+  **implementation is a required follow-up split** (planner-decomposed into
+  properly-laned stories): (a) a parse/estimator story to persist an entry's
+  costable siblings on a `needs_clarification` event and link each item-scoped
+  question to its `unresolved` component via the additive, nullable
+  `derived_food_items.id` reference on `clarification_questions`
+  (`parse-candidates.md` v5 — an additive, reversible migration owned by that
+  story); (b) the backend read/answer story that serves `item_id`, relaxes the
+  day-listing and daily-summary reads, and implements the sibling-preserving
+  re-estimate (`estimation-jobs.md` v3, `daily-summary.md`); and, once the reads
+  expose partial state, an optional mobile presentation story (no visual redesign
+  is specified here). Until that split lands, the shipped behaviour is the
+  FTY-275 baseline: an amountless component routes the whole event to an
+  event-level `needs_clarification` with nothing committed.
