@@ -873,6 +873,17 @@ The backend exposes four health-check endpoints, all returning structured JSON w
   (parser extraction + `user_text` step + validation) is the **downstream FTY-280
   follow-up**; the FTY-278/FTY-275 baseline ships until then. See **User-Stated
   Resolution (FTY-279)**.
+- **FTY-280 (implements FTY-279).** Adds `backend/app/estimator/user_text_step.py`
+  (`UserTextResolveStep` + `UserTextMacroEstimator`), wired **before** the food step:
+  it claims each candidate carrying a valid stated calorie total, resolves it from the
+  `user_text` `as_logged` tier (calories counted directly, never scaled), validates the
+  stated facts (finite / non-negative / as-logged abuse cap / Atwater cross-check),
+  and fills missing macros via reference search → model-prior cold-pass → `null` — the
+  no-second-follow-up rule. Unlike FTY-279 (contract-only), this story adds the
+  additive `0018` migration to `evidence_sources` (a `basis` column defaulting
+  `per_100g`, a nullable `field_provenance` map, and nullable `*_per_100g` fact-snapshot
+  columns so an unknown user-stated macro is `NULL`, never a fake `0`). The USDA / OFF /
+  official / reference / label paths and the serving math are unchanged.
 - **FTY-278 (contract only; no code, no migration in this story).** Redefines the
   clarification boundary from whole-event to **item-scoped** for a mixed food log,
   routing it to the new `partially_resolved` status (`log-events.md` v6): costable

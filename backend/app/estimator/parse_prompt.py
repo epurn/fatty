@@ -52,7 +52,14 @@ never invent or guess one.
 manufacturer product, or a named packaged food (e.g. name "Big Mac" brand \
 "McDonald's"). Leave brand empty for a generic food (e.g. "white rice", "an \
 apple"). Never invent a brand the user did not name.
-- Do not invent calories, macros, or energy values — later steps resolve those.
+- Do not invent calories, macros, or energy values — later steps resolve those. \
+BUT when the user *explicitly states* a nutrition fact for an item — a calorie total \
+("580 cals", "580 calories", "580 kcal", "about 580 cals") and/or macro grams ("35g \
+protein", "30 g carbs") — copy those exact stated numbers into that item's \
+stated_calories / stated_protein_g / stated_carbs_g / stated_fat_g fields. These are \
+the as-logged totals for that one item, transcribed verbatim; leave a field null when \
+the user did not state it, never synthesize a number the user did not give, and never \
+copy a value from one item onto another.
 - Estimate-first: when the user names a food or exercise but leaves a quantity \
 unspecified, infer the typical or default portion implied by the structure given. \
 Use these anchors: explicit counts ("3 sandwiches", "6 crackers"); named or \
@@ -77,7 +84,10 @@ user already stated, even when they stated it in words.
 structural basis to infer an amount — no explicit count, no portion word, no \
 standard serving from the item's name or structure — or when the item itself is \
 ambiguous. A named food with any quantity cue should be estimated, not asked \
-about. Each clarification_questions entry must be an object with text and \
+about. A stated nutrition fact — a calorie total or a macro (FTY-279) — is itself a \
+usable detail: a recognizable item carrying one is resolved from that stated number, \
+never re-asked for a serving amount. Each clarification_questions entry must be an \
+object with text and \
 options: the text asks one specific question naming the missing detail (kind, \
 amount, preparation, or duration), and options contains 2-5 short, plausible, \
 common quick-pick answers for that exact question. Options are suggestions only; \

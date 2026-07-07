@@ -254,6 +254,29 @@ _COLLOQUIAL_MEASURE_WORDS: Final[frozenset[str]] = frozenset(
 _INDEFINITE_MEASURE_RE: Final[re.Pattern[str]] = re.compile(r"\b(?:an?)\s+\S", re.IGNORECASE)
 
 
+def has_stated_nutrition(
+    stated_calories: float | None,
+    stated_protein_g: float | None = None,
+    stated_carbs_g: float | None = None,
+    stated_fat_g: float | None = None,
+) -> bool:
+    """Whether the user stated an explicit nutrition fact for this item (FTY-279/280).
+
+    ``True`` when a calorie total or any macro was stated (a positive value). Like a
+    stated portion (FTY-275) this is a **detail signal**: a recognizable item carrying
+    one is resolved/estimated from that stated evidence rather than re-asked for a
+    serving amount (``food-resolution.md`` no-second-follow-up). A stated *calorie
+    total* additionally drives direct ``user_text`` resolution
+    (:mod:`app.estimator.user_text_step`); a stated macro alone is still detail enough
+    to defer a source-miss to estimation instead of clarifying.
+    """
+
+    return any(
+        value is not None and value > 0
+        for value in (stated_calories, stated_protein_g, stated_carbs_g, stated_fat_g)
+    )
+
+
 def has_food_detail(amount: float | None, quantity_text: str) -> bool:
     """Whether a food candidate carries enough amount detail to estimate.
 

@@ -977,6 +977,21 @@ cross-user / unknown / unauthenticated fail-closed.
   Clients gain the `user_text` value in the provenance read-model (`SourceType`) and
   `daily-summary.md`. The existing source hierarchy, lookup-status vocabulary, and
   serving math are otherwise unchanged.
+- **FTY-280 (implementation of FTY-279).** Lands the estimator/parser/persistence work:
+  the parser extracts the `stated_*` fields (`parse-candidates.md`), the
+  `UserTextResolveStep` (`backend/app/estimator/user_text_step.py`) resolves a stated
+  calorie total from the `user_text` tier and fills its missing macros in the fixed
+  **reference-search → model-prior cold-pass → unknown** order above (the model-prior
+  estimate drawn over N cold passes gated on agreement, never a one-shot confidence),
+  and the read-model surfaces `user_text` (label "You logged"). Unlike FTY-279's
+  contract-only note, this story **does** add the additive `0018` migration:
+  `evidence_sources` gains `basis` (default `per_100g`) and a nullable
+  `field_provenance` JSON map, and the four `*_per_100g` fact-snapshot columns become
+  **nullable** so an `as_logged` user-stated record stores its calorie total with a
+  macro left `NULL` (unknown) rather than a fake `0`. Existing rows keep their
+  per-100g values, get `basis = 'per_100g'`, and `field_provenance = NULL`; the
+  migration is fully reversible. The source hierarchy, lookup-status vocabulary, and
+  serving math are unchanged.
 - FTY-088 adds a **diagnostics-only** LLM-provider descriptor to
   `GET /healthz/sources` (`id = claude_code`, `source_type = llm_provider`,
   `kinds = [estimation]`). It is additive and surfaces operator/health state only:

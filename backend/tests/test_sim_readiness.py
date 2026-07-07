@@ -123,21 +123,21 @@ def test_reported_env_curates_and_redacts() -> None:
 
 
 def test_alembic_status_at_head() -> None:
-    status = sr.AlembicStatus(db_version="0017", code_head="0017")
+    status = sr.AlembicStatus(db_version="0018", code_head="0018")
     assert status.at_head is True
-    assert "head 0017" in status.message
+    assert "head 0018" in status.message
 
 
 def test_alembic_status_reports_drift_with_both_versions() -> None:
-    status = sr.AlembicStatus(db_version="0016", code_head="0017")
+    status = sr.AlembicStatus(db_version="0017", code_head="0018")
     assert status.at_head is False
-    assert "0016" in status.message
     assert "0017" in status.message
+    assert "0018" in status.message
     assert "DRIFT" in status.message
 
 
 def test_alembic_status_handles_unreadable_db_version() -> None:
-    status = sr.AlembicStatus(db_version=None, code_head="0017")
+    status = sr.AlembicStatus(db_version=None, code_head="0018")
     assert status.at_head is False
     assert "could not be read" in status.message
 
@@ -145,7 +145,7 @@ def test_alembic_status_handles_unreadable_db_version() -> None:
 def test_code_head_revision_matches_the_shipped_head() -> None:
     # Guards that the smoke reads the head from the migration scripts, and pins
     # the current head the story is calibrated against.
-    assert sr.code_head_revision() == "0017"
+    assert sr.code_head_revision() == "0018"
 
 
 # --------------------------------------------------------------------------- #

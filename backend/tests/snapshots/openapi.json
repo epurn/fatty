@@ -1757,6 +1757,7 @@
           "product_database",
           "official_source",
           "user_label",
+          "user_text",
           "reference_source",
           "model_prior"
         ],

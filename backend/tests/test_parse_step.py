@@ -1014,3 +1014,138 @@ def test_plausible_reply_parses_unchanged() -> None:
     assert len(context.food_candidates) == 2
     assert {c.name for c in context.food_candidates} == {"oatmeal", "banana"}
     assert context.clarification_questions == []
+
+
+# --- user-stated nutrition extraction (FTY-279/FTY-280) ---------------------------
+
+
+def test_stated_nutrition_facts_are_carried_onto_the_candidate() -> None:
+    # A stated calorie total and macro are extracted verbatim onto the food candidate
+    # (untrusted evidence the food step later validates); an unstated field stays None.
+    provider = FakeProvider(
+        responses=_sampled(
+            _parsed(
+                [
+                    {
+                        "type": "food",
+                        "name": "buffalo chicken wrap",
+                        "brand": "Sobeys",
+                        "quantity_text": "1",
+                        "stated_calories": 580.0,
+                        "stated_protein_g": 35.0,
+                    }
+                ]
+            )
+        )
+    )
+    context = _context("Sobeys wrap (580 cals 35g protein)")
+
+    _run(provider, context)
+
+    assert len(context.food_candidates) == 1
+    candidate = context.food_candidates[0]
+    assert candidate.stated_calories == 580.0
+    assert candidate.stated_protein_g == 35.0
+    assert candidate.stated_carbs_g is None
+    assert candidate.stated_fat_g is None
+    assert context.clarification_questions == []
+
+
+def test_stated_calorie_fact_is_a_detail_signal_that_avoids_clarification() -> None:
+    # A conservative (low verbalized confidence) reply whose only detail is a stated
+    # calorie total is estimated, not asked about — the stated fact is a detail signal.
+    reply = _parsed(
+        [
+            {
+                "type": "food",
+                "name": "buffalo chicken wrap",
+                "quantity_text": "1",
+                "stated_calories": 580.0,
+            }
+        ],
+        confidence=0.2,
+    )
+    provider = FakeProvider(responses=_sampled(reply))
+    context = _context("a wrap, 580 cals")
+
+    _run(provider, context)
+
+    assert [c.name for c in context.food_candidates] == ["buffalo chicken wrap"]
+    assert context.food_candidates[0].stated_calories == 580.0
+    assert context.clarification_questions == []
+
+
+def test_negative_stated_calories_is_schema_invalid_and_fails_closed() -> None:
+    provider = FakeProvider(
+        responses=_sampled(
+            _parsed(
+                [{"type": "food", "name": "wrap", "quantity_text": "1", "stated_calories": -5.0}]
+            )
+        )
+    )
+    context = _context("a wrap")
+
+    with pytest.raises(StepFailed) as exc:
+        _run(provider, context)
+    assert exc.value.reason == "schema_validation_failed"
+    assert context.food_candidates == []
+
+
+def _stated_wrap(stated_calories: float | None, confidence: float = 0.9) -> dict[str, Any]:
+    """A parsed reply for one wrap, optionally carrying a stated calorie total."""
+
+    item: dict[str, Any] = {"type": "food", "name": "wrap", "quantity_text": "1"}
+    if stated_calories is not None:
+        item["stated_calories"] = stated_calories
+    return _parsed([item], confidence=confidence)
+
+
+def test_contradictory_stated_calories_across_samples_fail_closed() -> None:
+    # Adversarial (FTY-280): the samples extract materially different stated calorie
+    # totals for the same item. The stability gate must not let one arbitrary total be
+    # persisted as trusted user_text evidence — it fails closed to a targeted calorie
+    # question. The divergence also forces the full N samples (no unanimous early stop).
+    provider = FakeProvider(
+        responses=[_stated_wrap(580.0), _stated_wrap(1500.0), _stated_wrap(580.0)]
+    )
+    context = _context("a wrap, 580 or 1500 cals?")
+
+    with pytest.raises(NeedsClarification) as exc:
+        _run(provider, context)
+
+    assert exc.value.reason == "unstable_stated_nutrition"
+    assert len(provider.prompts) == SELF_CONSISTENCY_NUM_SAMPLES
+    assert context.food_candidates == []
+    assert len(context.clarification_questions) == 1
+    assert "wrap" in _question_texts(context)[0]
+    assert _question_options(context) == [["Under 300", "300–600", "Over 600"]]
+
+
+def test_majority_missing_a_stated_calorie_total_fails_closed() -> None:
+    # A strict majority of the samples that recognised the item did not extract a
+    # stated calorie total, so the one that did is unstable and not trusted: the item
+    # fails closed rather than persisting a total the model mostly did not see.
+    provider = FakeProvider(responses=[_stated_wrap(580.0), _stated_wrap(None), _stated_wrap(None)])
+    context = _context("a wrap")
+
+    with pytest.raises(NeedsClarification) as exc:
+        _run(provider, context)
+
+    assert exc.value.reason == "unstable_stated_nutrition"
+    assert context.food_candidates == []
+
+
+def test_stable_stated_calorie_total_survives_a_minority_missing_sample() -> None:
+    # A single sample omitting the total is minority noise: a strict majority agree on
+    # 580, so the extraction stays stable and the item is persisted with its stated
+    # total — the gate does not over-clarify on ordinary sampling noise.
+    provider = FakeProvider(
+        responses=[_stated_wrap(580.0), _stated_wrap(None), _stated_wrap(580.0)]
+    )
+    context = _context("a wrap, 580 cals")
+
+    _run(provider, context)
+
+    assert [c.name for c in context.food_candidates] == ["wrap"]
+    assert context.food_candidates[0].stated_calories == 580.0
+    assert context.clarification_questions == []

@@ -52,7 +52,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.estimator.detail_signals import has_food_detail
+from app.estimator.detail_signals import has_food_detail, has_stated_nutrition
 from app.estimator.evidence_utils import _record_source_ref
 from app.estimator.fdc import (
     FDC_SOURCE,
@@ -108,8 +108,15 @@ def _is_resolution_deferrable(candidate: CandidateDraft) -> bool:
     clarifies — the portion is genuinely missing, not merely casual.
     """
 
-    return _is_official_eligible(candidate) or has_food_detail(
-        candidate.amount, candidate.quantity_text
+    return (
+        _is_official_eligible(candidate)
+        or has_food_detail(candidate.amount, candidate.quantity_text)
+        or has_stated_nutrition(
+            candidate.stated_calories,
+            candidate.stated_protein_g,
+            candidate.stated_carbs_g,
+            candidate.stated_fat_g,
+        )
     )
 
 

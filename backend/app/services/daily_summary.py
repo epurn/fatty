@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -275,14 +276,27 @@ def _proposed_food_window_conditions(
 
 
 def _intake_dto(food_items: list[DerivedFoodItem]) -> DailySummaryIntakeDTO:
-    """Sum a day's finalized food items into the intake DTO (rounded to 0.1)."""
+    """Sum a day's finalized food items into the intake DTO (rounded to 0.1).
+
+    A macro the item leaves **unknown** (``None`` — a calorie-only ``user_text`` item,
+    FTY-279/280) is **skipped**, never coalesced to ``0``: an unknown macro contributes
+    no grams, so a macro total reflects only the macros actually known that day
+    (``daily-summary.md``). Calories are always known for a finalized item (the
+    ``calories IS NOT NULL`` finalized filter), so the headline sum is unaffected.
+    """
 
     return DailySummaryIntakeDTO(
-        calories=round(sum(item.calories or 0.0 for item in food_items), _ROUND_DECIMALS),
-        protein_g=round(sum(item.protein_g or 0.0 for item in food_items), _ROUND_DECIMALS),
-        carbs_g=round(sum(item.carbs_g or 0.0 for item in food_items), _ROUND_DECIMALS),
-        fat_g=round(sum(item.fat_g or 0.0 for item in food_items), _ROUND_DECIMALS),
+        calories=round(_sum_known(item.calories for item in food_items), _ROUND_DECIMALS),
+        protein_g=round(_sum_known(item.protein_g for item in food_items), _ROUND_DECIMALS),
+        carbs_g=round(_sum_known(item.carbs_g for item in food_items), _ROUND_DECIMALS),
+        fat_g=round(_sum_known(item.fat_g for item in food_items), _ROUND_DECIMALS),
     )
+
+
+def _sum_known(values: Iterable[float | None]) -> float:
+    """Sum only the known (non-``None``) values; an unknown value is skipped, not 0."""
+
+    return sum(value for value in values if value is not None)
 
 
 def _exercise_dto(exercise_items: list[DerivedExerciseItem]) -> DailySummaryExerciseDTO:

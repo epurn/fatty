@@ -53,6 +53,13 @@ persistence) are the **downstream FTY-280 implementation follow-up**, and the
 FTY-278/FTY-275 baseline ships until it lands. The stated fields need **no new parse
 persistence column** — like `brand`, they are consumed at resolution time, and the
 `derived_food_items` energy/macro columns are already nullable (FTY-044/FTY-051).
+FTY-280 implementation note: because a stated calorie total becomes rank-1
+`user_text` evidence, the FTY-158 self-consistency concordance also **compares the
+`stated_*` fields** across samples, and the parse step fails a stated total **closed**
+to a targeted calorie question when the samples materially disagree on it (a
+contradictory duplicate total, or a strict majority of the samples that recognised
+the item not extracting a total) — an unstable extraction is never persisted as a
+trusted user-stated fact.
 
 5 (FTY-278, contract only): defines the **item-scoped** clarification carrier for
 a mixed food log. A clarification question may now name the **specific unresolved
@@ -575,6 +582,14 @@ event.raw_text = "crackers and peanut butter"        # count genuinely indetermi
   **User-Stated Nutrition Evidence**), and let a calorie-only item count in
   `daily-summary.md`. The estimator/parser implementation is the downstream FTY-280
   follow-up; the FTY-278/FTY-275 baseline ships until it lands.
+- **FTY-280 (implements FTY-279).** The parser now extracts the `stated_*` fields
+  (bounded by `MAX_STATED_ENERGY_KCAL` / `MAX_STATED_MACRO_G`, `allow_inf_nan=False`
+  so a non-finite value is schema-invalid), a stated nutrition fact is a
+  `has_stated_nutrition` detail signal, and the food step resolves a stated calorie
+  total from the `user_text` tier (`backend/app/estimator/user_text_step.py`). Still
+  **no** `derived_*` parse-persistence column (consumed at resolution time, like
+  `brand`); the additive evidence-layer migration is `evidence-retrieval.md` /
+  `food-resolution.md`'s `0018`.
 - **FTY-278 (contract only; no code, no migration in this story).** Adds the
   nullable `clarification_questions.derived_food_item_id` reference — an
   **internal** producer→estimator link, **not** surfaced in the clarification read

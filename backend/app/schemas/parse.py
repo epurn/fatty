@@ -48,6 +48,16 @@ MAX_OPTION_LEN = 80
 MAX_REASON_LEN = 120
 MAX_BARCODE_LEN = 14
 
+#: Fail-closed abuse caps on the user-stated nutrition facts (FTY-279/FTY-280). A
+#: stated value above these — or negative / non-finite — makes the reply
+#: schema-invalid and fails closed. They are *as-logged totals for one item*, so
+#: the caps mirror the label path's per-entry ceilings (``nutrition_panel``:
+#: ``MAX_ENERGY_KCAL``/``MAX_MACRO_G``), not the per-100g plausibility bound (which
+#: needs a mass the user did not give). The food step re-validates plausibility and
+#: internal consistency before any of it backs a persisted number.
+MAX_STATED_ENERGY_KCAL = 10_000.0
+MAX_STATED_MACRO_G = 1_000.0
+
 OptionText = Annotated[str, Field(min_length=1, max_length=MAX_OPTION_LEN)]
 
 
@@ -95,6 +105,28 @@ class ParsedCandidate(BaseModel):
     #: out-of-range value is normalized away by the food step (FTY-060), which then
     #: routes deterministically rather than guessing. Digits only, length-bounded.
     barcode: str | None = Field(default=None, max_length=MAX_BARCODE_LEN, pattern=r"^\d+$")
+    #: Explicit nutrition facts the user *stated in the entry text* (FTY-279/FTY-280):
+    #: an as-logged calorie total ("580 cals") and/or macro grams ("35g protein"),
+    #: extracted verbatim — never invented. An unstated field is ``None``. These are
+    #: **as-logged totals for this item** (not per-100g / per-serving), captured as
+    #: untrusted evidence: the food step validates plausibility + internal consistency
+    #: (Atwater) and the as-logged abuse cap before any of it backs a persisted number
+    #: (``docs/contracts/evidence-retrieval.md`` → User-Stated Nutrition Evidence). A
+    #: stated calorie total drives ``user_text`` resolution (``food-resolution.md``);
+    #: the model must not synthesize a number the user did not give, nor copy a value
+    #: from one item onto another. Stored as data, never interpreted.
+    stated_calories: float | None = Field(
+        default=None, ge=0.0, le=MAX_STATED_ENERGY_KCAL, allow_inf_nan=False
+    )
+    stated_protein_g: float | None = Field(
+        default=None, ge=0.0, le=MAX_STATED_MACRO_G, allow_inf_nan=False
+    )
+    stated_carbs_g: float | None = Field(
+        default=None, ge=0.0, le=MAX_STATED_MACRO_G, allow_inf_nan=False
+    )
+    stated_fat_g: float | None = Field(
+        default=None, ge=0.0, le=MAX_STATED_MACRO_G, allow_inf_nan=False
+    )
 
 
 class ClarificationQuestion(BaseModel):

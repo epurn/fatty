@@ -45,7 +45,11 @@ from dataclasses import dataclass
 
 from app.enums import CandidateType
 from app.estimator.clarify_policy import NL_PARSE_CLARIFY_POLICY
-from app.estimator.detail_signals import has_food_detail, parse_range_midpoint
+from app.estimator.detail_signals import (
+    has_food_detail,
+    has_stated_nutrition,
+    parse_range_midpoint,
+)
 from app.estimator.exercise import has_exercise_detail
 from app.estimator.parse_prompt import build_parse_prompt
 from app.estimator.pipeline import (
@@ -128,6 +132,20 @@ _GENERIC_QUESTION_PATTERNS = (
     re.compile(r"^what was (?:it|that|this)$"),
     re.compile(r"^(?:what|which) (?:kind|type|brand|flavor|size) did you (?:have|mean)$"),
 )
+
+#: Minimum ``min/max`` ratio between two samples' stated calorie totals for the *same*
+#: item before the extraction is trusted (FTY-279/FTY-280). A calorie total the user
+#: typed should reproduce near-exactly across parse samples; a materially divergent
+#: total — or a total a strict majority of the samples that recognised the item failed
+#: to extract — is unstable extraction and must not be persisted as rank-1 ``user_text``
+#: evidence. Such an item fails closed to a targeted calorie clarification rather than
+#: committing one arbitrarily-chosen total. Documented tunable: a stated number, not an
+#: estimate, so the bar is tight while still tolerating rounding ("about 580" → 580/600).
+_STATED_CALORIE_STABILITY_RATIO = 0.8
+
+#: Quick-pick suggestions for a backend-routed stated-calorie clarification (the answer
+#: endpoint always accepts free text; these are display-only anchors).
+_CALORIE_AMOUNT_OPTIONS = ["Under 300", "300–600", "Over 600"]
 
 
 @dataclass(frozen=True)
@@ -235,6 +253,23 @@ class ParseStep:
             context.clarification_questions = [implausible]
             raise NeedsClarification("implausible_candidate")
 
+        # User-stated nutrition stability gate (FTY-279/FTY-280): a stated calorie
+        # total becomes rank-1 ``user_text`` evidence, so it must not be persisted
+        # when the parse samples materially disagree on it (a contradictory duplicate
+        # total, or a majority of samples not extracting it at all). The verbalized/
+        # detail-override routing can otherwise let one arbitrary total through even
+        # when the samples conflict — this deterministic check fails such an item
+        # closed to a targeted calorie question instead of trusting a shaky number.
+        unstable = _first_unstable_stated_item(signal.samples, result.items)
+        if unstable is not None:
+            context.clarification_questions = [
+                ClarificationDraft(
+                    text=f"How many calories were in the {unstable.name}?",
+                    options=list(_CALORIE_AMOUNT_OPTIONS),
+                )
+            ]
+            raise NeedsClarification("unstable_stated_nutrition")
+
         for item, assumption in effective:
             if assumption is not None and assumption not in context.assumptions:
                 context.assumptions.append(assumption)
@@ -294,6 +329,10 @@ def _to_draft(item: ParsedCandidate) -> CandidateDraft:
         amount=item.amount,
         barcode=item.barcode,
         brand=item.brand,
+        stated_calories=item.stated_calories,
+        stated_protein_g=item.stated_protein_g,
+        stated_carbs_g=item.stated_carbs_g,
+        stated_fat_g=item.stated_fat_g,
     )
 
 
@@ -317,7 +356,12 @@ def _candidate_has_detail(item: ParsedCandidate) -> bool:
 
     if item.type is CandidateType.EXERCISE:
         return has_exercise_detail(item.unit, item.amount, item.quantity_text)
-    return has_food_detail(item.amount, item.quantity_text)
+    return has_food_detail(item.amount, item.quantity_text) or has_stated_nutrition(
+        item.stated_calories,
+        item.stated_protein_g,
+        item.stated_carbs_g,
+        item.stated_fat_g,
+    )
 
 
 def _clarification_questions(
@@ -452,6 +496,62 @@ def _first_implausible(items: list[ParsedCandidate]) -> ClarificationDraft | Non
                 options=_implausible_candidate_options(item, result.reason),
             )
     return None
+
+
+def _first_unstable_stated_item(
+    samples: Sequence[ParseResult], items: Sequence[ParsedCandidate]
+) -> ParsedCandidate | None:
+    """Return the first routed food item whose stated calorie total is unstable.
+
+    Only items carrying a positive stated calorie total are checked (the field that
+    grants the rank-1 ``user_text`` tier); everything else is skipped. Returns the
+    first item whose total is not stable across ``samples`` (see
+    :func:`_stated_calories_are_stable`), or ``None`` when every stated total is
+    trustworthy.
+    """
+
+    for item in items:
+        if item.type is not CandidateType.FOOD:
+            continue
+        if item.stated_calories is None or item.stated_calories <= 0:
+            continue
+        if not _stated_calories_are_stable(samples, item):
+            return item
+    return None
+
+
+def _stated_calories_are_stable(samples: Sequence[ParseResult], item: ParsedCandidate) -> bool:
+    """Whether ``item``'s user-stated calorie total is stable across the parse samples.
+
+    Gathers the stated calorie totals every sample extracted for the *same* item
+    (matched on kind + normalised name). The extraction is unstable — and the total
+    must not be trusted as persisted evidence — when a strict majority of the samples
+    that recognised the item failed to extract a calorie total (so the model mostly did
+    not see a stated total), or when two extracted totals diverge by more than
+    :data:`_STATED_CALORIE_STABILITY_RATIO`. Returns ``True`` when no sample stated a
+    positive total (nothing to gate).
+    """
+
+    key = _stated_item_key(item)
+    totals = [
+        candidate.stated_calories
+        for sample in samples
+        for candidate in sample.items
+        if _stated_item_key(candidate) == key
+    ]
+    present = [total for total in totals if total is not None and total > 0]
+    if not present:
+        return True
+    if len(present) * 2 <= len(totals):
+        return False
+    low, high = min(present), max(present)
+    return high <= 0 or low / high >= _STATED_CALORIE_STABILITY_RATIO
+
+
+def _stated_item_key(item: ParsedCandidate) -> tuple[str, str]:
+    """Match key for a candidate: its kind plus casefolded, whitespace-collapsed name."""
+
+    return (item.type.value, " ".join(item.name.casefold().split()))
 
 
 def _implausible_candidate_options(item: ParsedCandidate, reason: str | None) -> list[str]:

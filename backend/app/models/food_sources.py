@@ -127,14 +127,34 @@ class EvidenceSource(Base):
     source_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
-    #: Immutable snapshot of the per-100g facts used for this resolution.
-    calories_per_100g: Mapped[float] = mapped_column(Float, nullable=False)
-    protein_per_100g: Mapped[float] = mapped_column(Float, nullable=False)
-    carbs_per_100g: Mapped[float] = mapped_column(Float, nullable=False)
-    fat_per_100g: Mapped[float] = mapped_column(Float, nullable=False)
+    #: What the immutable fact snapshot below is expressed against (FTY-279/FTY-280;
+    #: ``evidence-retrieval.md`` normalized-fact schema): ``per_100g`` for a
+    #: database / label / official / reference source (the default — scaled by the
+    #: serving math), or ``as_logged`` for a user-stated total that is already the
+    #: consumed-quantity total and is **not** re-scaled. The basis disambiguates the
+    #: snapshot columns, so an as-logged total is never silently reinterpreted as a
+    #: per-100g density. Existing rows are ``per_100g``.
+    basis: Mapped[str] = mapped_column(String(16), nullable=False, default="per_100g")
+    #: Immutable snapshot of the facts used for this resolution, expressed against
+    #: ``basis``. Per-100g for a scaled source; the as-logged totals for a
+    #: ``user_text`` item (calories the user stated; a macro is the estimated total or
+    #: ``None`` when unknown). ``calories`` is required for any usable match; a macro
+    #: is **nullable** so an *unknown* macro (FTY-279) stays distinct from a real
+    #: ``0 g`` — a ``None`` macro is unknown, never a silent zero.
+    calories_per_100g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_per_100g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    carbs_per_100g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fat_per_100g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Per-field provenance when a record's fields have heterogeneous origins
+    #: (FTY-279): maps each of ``calories`` / ``protein_g`` / ``carbs_g`` / ``fat_g``
+    #: to ``user_stated`` / ``estimated`` / ``unknown``. ``None`` when every present
+    #: fact field shares this record's ``source_type`` (the database/label/official/
+    #: reference case). Never raw user text.
+    field_provenance: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     #: Documented assumptions behind this resolution (FTY-062): the model-prior
-    #: fallback reason, density/serving assumptions. ``None`` for a deterministic
-    #: database source (USDA/OFF) that needs none. Never raw user text or page content.
+    #: fallback reason, density/serving assumptions, or the per-field estimate source
+    #: (FTY-280). ``None`` for a deterministic database source (USDA/OFF) that needs
+    #: none. Never raw user text or page content.
     assumptions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(

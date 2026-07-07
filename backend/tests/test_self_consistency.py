@@ -148,6 +148,63 @@ def test_empty_item_lists() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Stated nutrition (FTY-279/FTY-280): the metric must compare the user-stated
+# facts, so unstable/contradictory calorie extraction is not read as unanimous.
+# ---------------------------------------------------------------------------
+
+
+def _stated(name: str, **stated: float) -> dict[str, Any]:
+    return {"type": "food", "name": name, "quantity_text": "1", **stated}
+
+
+def test_matching_stated_calories_stay_fully_concordant() -> None:
+    # Same item, same stated total → the stated-nutrition factor is 1.0 and the pair
+    # is still unanimous (the ordinary user-text happy path is unaffected).
+    a = _result(items=[_stated("wrap", stated_calories=580.0)])
+    b = _result(items=[_stated("wrap", stated_calories=580.0)], confidence=0.4)
+
+    assert pair_concordance(a, b) == 1.0
+
+
+def test_contradictory_stated_calories_are_not_unanimous() -> None:
+    # A conflicting stated total drops concordance below 1.0 (min/max ratio), so the
+    # extraction can never be treated as unanimous and early-stop cannot fire on it.
+    a = _result(items=[_stated("wrap", stated_calories=580.0)])
+    b = _result(items=[_stated("wrap", stated_calories=900.0)])
+
+    assert pair_concordance(a, b) == pytest.approx(580.0 / 900.0)
+
+
+def test_one_sample_omitting_a_stated_calorie_total_is_disagreement() -> None:
+    # One sample extracts a stated total, the other extracts none for the same item:
+    # the samples disagree on whether the user even stated it → full disagreement on
+    # that field, so the pair is not unanimous.
+    a = _result(items=[_stated("wrap", stated_calories=580.0)])
+    b = _result(items=[{"type": "food", "name": "wrap", "quantity_text": "1"}])
+
+    assert pair_concordance(a, b) == 0.0
+
+
+def test_both_omitting_stated_nutrition_is_unaffected() -> None:
+    # No stated facts in play on either side → the stated-nutrition factor is 1.0 and
+    # the metric matches the pre-FTY-280 amount-only behaviour exactly.
+    a = _result(items=[_item("eggs", amount=2.0, unit="count")])
+    b = _result(items=[_item("eggs", amount=2.0, unit="count")])
+
+    assert pair_concordance(a, b) == 1.0
+
+
+def test_stated_macro_disagreement_lowers_concordance() -> None:
+    # Calories agree but a co-stated macro conflicts: only fields in play are scored
+    # (calories 1.0, protein 20/40), so concordance is their mean, not diluted by the
+    # untouched carbs/fat fields.
+    a = _result(items=[_stated("wrap", stated_calories=580.0, stated_protein_g=20.0)])
+    b = _result(items=[_stated("wrap", stated_calories=580.0, stated_protein_g=40.0)])
+
+    assert pair_concordance(a, b) == pytest.approx((1.0 + 0.5) / 2)
+
+
+# ---------------------------------------------------------------------------
 # Agreement over N samples and the hybrid combiner.
 # ---------------------------------------------------------------------------
 

@@ -457,6 +457,12 @@ curl -s ':8000/api/users/<uid>/daily-summary/range?from=2025-01-01&to=2026-06-01
   inert until the FTY-280 estimator follow-up** writes the first such item. (This entry
   also completes the descriptor enum's `reference_source` value, per FTY-166's
   provenance read-model.)
+- **FTY-280 (implements FTY-279).** Makes the calorie-only counting live: the intake
+  sum now **skips** an unknown (`None`) macro instead of coalescing it to `0`
+  (`_sum_known`), so mixing a `user_text` calorie-only item with a fully-known item
+  yields only the known macros — the unknown ones add no grams. The `user_text` source
+  (label "You logged") is surfaced by the read-model. Still a pure computed read over
+  existing (now-writable) rows; no daily-summary DTO or endpoint change.
 - **FTY-278 (contract only; no migration).** Relaxes the finalized-state filter's
   event-status clause to `IN ('completed', 'partially_resolved')` and re-bases
   `uncounted_entries` onto the unresolved **component** (one per open item-scoped

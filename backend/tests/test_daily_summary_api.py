@@ -198,6 +198,59 @@ def _seed_daily_target(
 # ---------------------------------------------------------------------------
 
 
+def test_calorie_only_user_text_item_counts_calories_without_fabricating_macros(
+    client: TestClient, db_engine: Engine
+) -> None:
+    """A calorie-only ``user_text`` item counts its calories; unknown macros are skipped.
+
+    FTY-279/280: a resolved item with known calories but ``None`` macros contributes
+    its calories to ``intake.calories`` while each unknown macro contributes **no**
+    grams (skipped, never summed as ``0``) — so mixing it with a fully-known item
+    yields the known item's macros, not an inflated-by-zero total.
+    """
+
+    user_id, auth = _register(client, "usertext-summary@example.com")
+    today = datetime.now(UTC).date()
+    event_id = _seed_completed_event(db_engine, user_id)
+
+    # A calorie-only user-stated item: 580 kcal, macros unknown (None).
+    _seed_food_item(
+        db_engine,
+        user_id,
+        event_id,
+        calories=580.0,
+        protein_g=None,
+        carbs_g=None,
+        fat_g=None,
+    )
+    # A fully-known item alongside it.
+    _seed_food_item(
+        db_engine,
+        user_id,
+        event_id,
+        calories=200.0,
+        protein_g=10.0,
+        carbs_g=30.0,
+        fat_g=5.0,
+    )
+
+    resp = client.get(
+        f"/api/users/{user_id}/daily-summary",
+        headers={"Authorization": auth},
+        params={"day": str(today)},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # Calories from both items count; the unknown macros are skipped, so the macro
+    # totals reflect only the known item — never inflated by a fabricated 0.
+    assert body["intake"]["calories"] == 780.0
+    assert body["intake"]["protein_g"] == 10.0
+    assert body["intake"]["carbs_g"] == 30.0
+    assert body["intake"]["fat_g"] == 5.0
+    assert body["has_intake"] is True
+
+
 def test_aggregation_returns_correct_separated_totals(
     client: TestClient, db_engine: Engine
 ) -> None:
