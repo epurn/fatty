@@ -332,6 +332,23 @@ _BODY_METRIC_UNITS: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: Spelled-out number words a body metric uses when its value is worded rather than a digit
+#: (``height five foot ten``, ``weight two hundred pounds``, ``one point eight metres``).
+#: These carry no digit, so a digit-only forward taint disarms on them and leaks the metric
+#: (``five`` egresses, then ``foot ten`` rides along). Like :data:`_BODY_METRIC_UNITS` they
+#: keep the taint armed and drop *only while tainted* (immediately after a stripped
+#: personal-context marker), so a whole worded ``<number> <unit> <number>`` body metric run
+#: drops — while a worded number elsewhere in an item name (``Seven Up``, ``Half Baked``) is
+#: never preceded by a marker and still egresses.
+#: Held as a split string (not a one-per-line set literal) so the 31-word vocabulary stays
+#: compact — the formatter explodes a set literal one element per line.
+_NUMBER_WORDS_TEXT: Final[str] = (
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen "
+    "fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty "
+    "sixty seventy eighty ninety hundred thousand point"
+)
+_NUMBER_WORDS: Final[frozenset[str]] = frozenset(_NUMBER_WORDS_TEXT.split())
+
 #: Angle-bracket framing markers (``<end>``, ``<|im_start|>``, ``<system>``…) a prompt
 #: injection uses to delimit smuggled instructions. Their **inner** tokens (``end``,
 #: ``im``, ``start``…) survive a naive ``[a-z0-9]+`` tokenizer and are not food-identity
@@ -498,13 +515,16 @@ def sanitized_identity(name: str) -> str:
       also extends **forward** across whitespace: a marker separated from its value by a
       space (``user id 42``, ``weight 200lb``) would otherwise leave the value word
       (``42`` / ``200lb``) untainted, so a dropped marker word taints the following run of
-      *value-shaped* words (any token carrying a digit — the shape of an id or body metric)
-      **and bare measurement-unit words** (``ft``/``in``/``lb``…, :data:`_BODY_METRIC_UNITS`)
-      the value splits across (``height 5 ft 10 in``). Both keep the taint armed, so a whole
-      ``<number> <unit>`` body metric drops rather than a digit-free unit word disarming it
-      and leaking the trailing value. This is deliberately narrow: it only consumes
-      digit-bearing or pure-unit words *following a marker*, so an open-vocabulary numeric
-      food identity that is *not* preceded by a marker (``5 Guys``, ``7 Up``) still egresses.
+      *value-shaped* words (any token carrying a digit — the shape of an id or body metric),
+      **bare measurement-unit words** (``ft``/``in``/``lb``…, :data:`_BODY_METRIC_UNITS`),
+      **and spelled-out number words** (``five``/``ten``/``hundred``…,
+      :data:`_NUMBER_WORDS`) the value splits across (``height 5 ft 10 in``,
+      ``height five foot ten``). All three keep the taint armed, so a whole
+      ``<number> <unit>`` body metric drops — whether the value is a digit or worded —
+      rather than a digit-free unit or number word disarming it and leaking the trailing
+      value. This is deliberately narrow: it only consumes digit-bearing, pure-unit, or
+      pure-number words *following a marker*, so an open-vocabulary numeric food identity
+      that is *not* preceded by a marker (``5 Guys``, ``7 Up``, ``Seven Up``) still egresses.
     - **Token-count bound** — because the deny-list cannot be exhaustive over an
       open-vocabulary identity, the surviving identity is truncated to the first
       :data:`MAX_IDENTITY_TOKENS`. A real name + brand fits comfortably; a longer run of
@@ -528,13 +548,15 @@ def sanitized_identity(name: str) -> str:
             tainted = True
             continue
         # A value-shaped word (any token carrying a digit — the shape of an id or body
-        # metric) or a bare measurement-unit word drops while the forward taint is armed,
-        # and keeps it armed so a run of value/unit words (``5 ft 10 in``, ``200 lb``) all
-        # drop rather than leaking a unit or the value it introduces. A word that is neither
-        # (an open-vocab identity word) disarms the taint.
+        # metric), a bare measurement-unit word, or a spelled-out number word drops while
+        # the forward taint is armed, and keeps it armed so a run of value/unit/number words
+        # (``5 ft 10 in``, ``200 lb``, ``five foot ten``) all drop rather than leaking a
+        # unit, a digit value, or a worded value the metric introduces. A word that is none
+        # of these (an open-vocab identity word) disarms the taint.
         if tainted and (
             any(_DIGIT_RE.search(token) for token in word_tokens)
             or (bool(word_tokens) and all(t in _BODY_METRIC_UNITS for t in word_tokens))
+            or (bool(word_tokens) and all(t in _NUMBER_WORDS for t in word_tokens))
         ):
             continue
         tainted = False

@@ -142,6 +142,27 @@ def test_sanitized_identity_drops_body_metric_split_across_unit_words() -> None:
         assert leaked not in tokens
 
 
+def test_sanitized_identity_drops_worded_body_metric_after_marker() -> None:
+    # The reviewer's remaining egress finding: a body metric whose value is *spelled out*
+    # (`height five foot ten`, `weight two hundred pounds`) carries no digit, so a
+    # digit/unit-only forward taint disarms on the number word `five` and leaks the whole
+    # metric. Number words must also keep the taint armed, so the worded metric run drops.
+    identity = sanitized_identity(
+        "buffalo chicken lime wrap height five foot ten weight two hundred pounds"
+    )
+    tokens = identity.split()
+    assert tokens == ["buffalo", "chicken", "lime", "wrap"]
+    for leaked in ("five", "foot", "ten", "two", "hundred", "pounds", "height", "weight"):
+        assert leaked not in tokens
+
+
+def test_sanitized_identity_keeps_open_vocab_worded_number_identity() -> None:
+    # The worded-number taint stays as narrow as the digit taint: a spelled-out number that
+    # is *not* preceded by a personal-context marker is open-vocabulary food identity
+    # (`Seven Up`, `Half Baked`) and still egresses.
+    assert sanitized_identity("Seven Up Soda") == "seven up soda"
+
+
 def test_sanitized_identity_body_metric_run_disarms_on_following_food_word() -> None:
     # The unit-aware taint stays narrow: it only consumes the digit/unit run introduced by a
     # marker. A real food identity word after the body metric disarms the taint and egresses,
