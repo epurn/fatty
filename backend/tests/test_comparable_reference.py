@@ -129,6 +129,26 @@ def test_sanitized_identity_forward_taint_disarms_on_non_value_word() -> None:
     assert sanitized_identity("weight gainer 5 alive smoothie") == "gainer 5 alive smoothie"
 
 
+def test_sanitized_identity_drops_body_metric_split_across_unit_words() -> None:
+    # The reviewer's follow-up egress finding: a body metric whose value and unit are
+    # separated by spaces (`height 5 ft 10 in`, `weight 200 lb`) splits into bare digit and
+    # unit words. A unit word carries no digit, so a digit-only forward taint would disarm on
+    # it and leak the trailing value (`ft 10`). The taint must also consume measurement-unit
+    # words, so the whole `<number> <unit>` run drops and no body metric egresses.
+    identity = sanitized_identity("buffalo chicken lime wrap height 5 ft 10 in weight 200 lb")
+    tokens = identity.split()
+    assert tokens == ["buffalo", "chicken", "lime", "wrap"]
+    for leaked in ("5", "ft", "10", "in", "200", "lb", "height", "weight"):
+        assert leaked not in tokens
+
+
+def test_sanitized_identity_body_metric_run_disarms_on_following_food_word() -> None:
+    # The unit-aware taint stays narrow: it only consumes the digit/unit run introduced by a
+    # marker. A real food identity word after the body metric disarms the taint and egresses,
+    # so the fix does not over-strip identity that trails personal context.
+    assert sanitized_identity("weight 200 lb chicken wrap") == "chicken wrap"
+
+
 def test_sanitized_identity_bounds_token_count() -> None:
     # The structural guarantee behind the open-vocabulary deny-list: even would-be-identity
     # words that are on neither the deny-list nor the stopword list can only egress inside a

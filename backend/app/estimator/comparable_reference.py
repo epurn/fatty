@@ -282,6 +282,56 @@ _TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]+")
 #: value by a space cannot leak the value.
 _DIGIT_RE: Final[re.Pattern[str]] = re.compile(r"[0-9]")
 
+#: Bare measurement-unit words a body metric splits across when its value and unit are
+#: separated by spaces (``height 5 ft 10 in``, ``weight 200 lb``). These carry a digit on
+#: neither their own word nor the deny-list, so without them a unit word would *disarm* the
+#: forward taint and let the next value word (``10``) egress. While the taint is armed a
+#: pure unit word is dropped and keeps the taint armed, so a whole ``<number> <unit>`` body
+#: metric run drops. Only consulted *while tainted* (i.e. immediately after a stripped
+#: personal-context marker), so an unqualified unit word elsewhere is unaffected.
+_BODY_METRIC_UNITS: Final[frozenset[str]] = frozenset(
+    {
+        # length
+        "ft",
+        "feet",
+        "foot",
+        "in",
+        "inch",
+        "inches",
+        "cm",
+        "mm",
+        "m",
+        "meter",
+        "meters",
+        "metre",
+        "metres",
+        "centimeter",
+        "centimeters",
+        "centimetre",
+        "centimetres",
+        # mass
+        "lb",
+        "lbs",
+        "pound",
+        "pounds",
+        "kg",
+        "kgs",
+        "kilo",
+        "kilos",
+        "kilogram",
+        "kilograms",
+        "g",
+        "gram",
+        "grams",
+        "oz",
+        "ounce",
+        "ounces",
+        "stone",
+        "stones",
+        "st",
+    }
+)
+
 #: Angle-bracket framing markers (``<end>``, ``<|im_start|>``, ``<system>``…) a prompt
 #: injection uses to delimit smuggled instructions. Their **inner** tokens (``end``,
 #: ``im``, ``start``…) survive a naive ``[a-z0-9]+`` tokenizer and are not food-identity
@@ -448,10 +498,13 @@ def sanitized_identity(name: str) -> str:
       also extends **forward** across whitespace: a marker separated from its value by a
       space (``user id 42``, ``weight 200lb``) would otherwise leave the value word
       (``42`` / ``200lb``) untainted, so a dropped marker word taints the following run of
-      *value-shaped* words (any token carrying a digit — the shape of an id or body
-      metric). This is deliberately narrow: only digit-bearing words following a marker
-      drop, so an open-vocabulary numeric food identity that is *not* preceded by a marker
-      (``5 Guys``, ``7 Up``) still egresses.
+      *value-shaped* words (any token carrying a digit — the shape of an id or body metric)
+      **and bare measurement-unit words** (``ft``/``in``/``lb``…, :data:`_BODY_METRIC_UNITS`)
+      the value splits across (``height 5 ft 10 in``). Both keep the taint armed, so a whole
+      ``<number> <unit>`` body metric drops rather than a digit-free unit word disarming it
+      and leaking the trailing value. This is deliberately narrow: it only consumes
+      digit-bearing or pure-unit words *following a marker*, so an open-vocabulary numeric
+      food identity that is *not* preceded by a marker (``5 Guys``, ``7 Up``) still egresses.
     - **Token-count bound** — because the deny-list cannot be exhaustive over an
       open-vocabulary identity, the surviving identity is truncated to the first
       :data:`MAX_IDENTITY_TOKENS`. A real name + brand fits comfortably; a longer run of
@@ -475,9 +528,14 @@ def sanitized_identity(name: str) -> str:
             tainted = True
             continue
         # A value-shaped word (any token carrying a digit — the shape of an id or body
-        # metric) drops while the forward taint is armed, and keeps it armed so a run of
-        # such values (``weight 200 lb 34 in``) all drop. A non-value word disarms it.
-        if tainted and any(_DIGIT_RE.search(token) for token in word_tokens):
+        # metric) or a bare measurement-unit word drops while the forward taint is armed,
+        # and keeps it armed so a run of value/unit words (``5 ft 10 in``, ``200 lb``) all
+        # drop rather than leaking a unit or the value it introduces. A word that is neither
+        # (an open-vocab identity word) disarms the taint.
+        if tainted and (
+            any(_DIGIT_RE.search(token) for token in word_tokens)
+            or (bool(word_tokens) and all(t in _BODY_METRIC_UNITS for t in word_tokens))
+        ):
             continue
         tainted = False
         identity.extend(token for token in word_tokens if token not in _STOPWORDS)
