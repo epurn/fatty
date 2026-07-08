@@ -302,7 +302,7 @@ still governs `balanced`, and `strict` may choose the older amount-clarification
 | calibrated-confident, ≥1 item, all food candidates plausible | _(completes)_ | candidates `unresolved` | `processing → completed` |
 | calibrated-confident, ≥1 item, but a food candidate is implausible | `NeedsClarification` (`implausible_candidate`) | clarification question | `processing → needs_clarification` |
 | provider asks / no sample `parsed`, but a recognizable identity is present or recoverable and `estimate_first` is active | _(completes)_ | rough candidates `unresolved` + content-free assumptions; provider questions discarded | `processing → completed` |
-| no sample `parsed`, or the hybrid score is below the calibrated operating point, and the active policy allows asking | `NeedsClarification` | clarification questions (pooled across samples or synthesized by backend policy) | `processing → needs_clarification` |
+| active policy allows asking, and either no recognizable/recoverable candidate remains after repair or the hybrid score is below the calibrated operating point | `NeedsClarification` | clarification questions (pooled across samples or synthesized by backend policy) | `processing → needs_clarification` |
 | unanimously `unparseable`, or a trusted set with no items | `StepFailed` (terminal) | nothing | `processing → failed` |
 | empty/whitespace input | `StepFailed` (terminal, no LLM call) | nothing | `processing → failed` |
 | schema-invalid sample / non-retryable provider error | `StepFailed` (terminal) | nothing | `processing → failed` |
@@ -333,8 +333,13 @@ which owns the architecture decision this implements):
   hybrid (`0.6 × agreement + 0.4 × verbalized`). The **hybrid won** and is what
   the gate consumes: at the target precision the verbalized baseline reaches
   only 40% coverage and agreement-only never reaches it at all. A sample set
-  with **no `parsed` sample** is a direct clarify decision, never scored (its
-  agreement can be a perfect 1.0 *about asking*).
+  with **no `parsed` sample** has no hybrid score to trust (its agreement can be
+  a perfect 1.0 *about asking*), so the active FTY-298 policy owns routing:
+  under `estimate_first`, clarification-only samples with a recognizable or
+  recoverable identity are advisory and may be repaired into rough candidates;
+  under `balanced`/`strict`, or when `estimate_first` has no recognizable
+  identity or another allowed clarification reason applies, the set routes to
+  clarification or failure.
 - **Operating point — derived, with a margin.** The threshold is chosen on the
   winning signal's risk-coverage curve for a **target answered precision of
   0.99** (of the events the gate estimates, ≥ 99% must be gold-estimate —
