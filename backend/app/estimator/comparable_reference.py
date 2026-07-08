@@ -39,12 +39,14 @@ impossible by construction.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import statistics
 from dataclasses import dataclass
 from typing import Final
 
+from app.enums import ESTIMATE_BASIS_ASSUMPTION_PREFIX, MacroEstimateBasis
 from app.estimator.food_serving import NutritionFacts
 
 #: Source-system id recorded on the run ``source_refs`` and named in the evidence
@@ -177,19 +179,36 @@ class ComparableCandidate:
 
 
 @dataclass(frozen=True)
+class ComparableContributor:
+    """The retained provenance for one surviving reference in the aggregate.
+
+    ``source_ref`` is ``reference_source:<url>`` (the URL only — never the raw page);
+    ``content_hash`` fingerprints the page's *extracted, canonicalised* per-100g facts
+    (:func:`_contributor_content_hash`); ``facts`` is that immutable per-100g snapshot.
+    Recording all three per contributor (not just a blended number) is the FTY-281
+    evidence-transparency requirement — a client can audit exactly which references,
+    with which facts, produced the rough estimate. No raw page text is ever retained.
+    """
+
+    source_ref: str
+    content_hash: str
+    facts: NutritionFacts
+
+
+@dataclass(frozen=True)
 class ComparableAggregate:
     """A deterministic median aggregate over compatible references (rough evidence).
 
     ``densities`` maps each macro name to its aggregated **grams per kcal** (the basis
-    scaled to the user's stated calorie total); ``source_refs`` names every surviving
-    contributor; ``shared_terms`` / ``forms`` summarise the compatibility criteria and
-    ``dropped_outliers`` how many candidates were rejected before aggregation. The
-    caller turns ``densities`` into committed macro grams and records the rest as
-    assumptions.
+    scaled to the user's stated calorie total); ``contributors`` retains every surviving
+    reference's ref + content hash + per-100g fact snapshot; ``shared_terms`` / ``forms``
+    summarise the compatibility criteria and ``dropped_outliers`` how many candidates
+    were rejected before aggregation. The caller turns ``densities`` into committed macro
+    grams and records the rest as assumptions.
     """
 
     densities: dict[str, float]
-    source_refs: tuple[str, ...]
+    contributors: tuple[ComparableContributor, ...]
     shared_terms: tuple[str, ...]
     forms: tuple[str, ...]
     dropped_outliers: int
@@ -269,6 +288,18 @@ def compatibility(target_name: str, page_name: str | None) -> _Match | None:
     )
 
 
+def _contributor_content_hash(facts: NutritionFacts) -> str:
+    """A reproducible fingerprint of one reference's canonicalised per-100g facts.
+
+    Hashes only the bounded, plausibility-passed per-100g numbers (never the raw page),
+    so a contributing reference's snapshot is auditable and de-duplicable without ever
+    retaining fetched page content (``evidence-retrieval.md`` → Privacy and Retention).
+    """
+
+    canonical = f"per_100g|{facts.calories}|{facts.protein_g}|{facts.carbs_g}|{facts.fat_g}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _macro_fractions(facts: NutritionFacts) -> tuple[float, ...]:
     """Fraction of energy from each macro — a bounded, comparable composition vector.
 
@@ -329,9 +360,17 @@ def aggregate(candidates: list[ComparableCandidate]) -> ComparableAggregate | No
     }
     shared_terms = tuple(sorted({term for c in survivors for term in c.shared_terms}))
     forms = tuple(sorted({c.form for c in survivors if c.form}))
+    contributors = tuple(
+        ComparableContributor(
+            source_ref=c.source_ref,
+            content_hash=_contributor_content_hash(c.facts),
+            facts=c.facts,
+        )
+        for c in survivors
+    )
     return ComparableAggregate(
         densities=densities,
-        source_refs=tuple(c.source_ref for c in survivors),
+        contributors=contributors,
         shared_terms=shared_terms,
         forms=forms,
         dropped_outliers=len(candidates) - len(survivors),
@@ -346,9 +385,11 @@ def build_missing_macro_fill(
     Each missing macro is committed at ``density × stated_calories`` (rounded 0.1) — the
     aggregate is used only as a macro **ratio** scaled to the number the user gave, never
     as an absolute product fact. Returns the committed values plus the assumptions that
-    record the method, the compatibility summary, and **every** contributing source ref
-    (``evidence-retrieval.md`` step 2: never a single anonymous blended number); no raw
-    page text is ever included.
+    record, in order: a machine-readable **estimate-basis marker** the read-model derives
+    ``estimate_basis`` from (``evidence-retrieval.md`` FTY-092 read-model), the method,
+    the compatibility summary, and **every** contributing reference with its content hash
+    and immutable per-100g fact snapshot (step 2: never a single anonymous blended
+    number). No raw page text is ever included.
     """
 
     values = {name: round(aggregate_result.densities[name] * calories, 1) for name in missing}
@@ -367,12 +408,25 @@ def build_missing_macro_fill(
     )
     method = (
         f"{', '.join(missing)} estimated from a rough comparable-reference aggregate "
-        f"(median of {len(aggregate_result.source_refs)} compatible references{dropped}) "
+        f"(median of {len(aggregate_result.contributors)} compatible references{dropped}) "
         f"scaled to the stated {calories:g} kcal"
     )
     assumptions = (
+        f"{ESTIMATE_BASIS_ASSUMPTION_PREFIX}{MacroEstimateBasis.COMPARABLE_REFERENCE.value}",
         method,
         f"comparable on: {compatibility_summary}",
-        *(f"comparable source: {ref}" for ref in aggregate_result.source_refs),
+        *(_contributor_assumption(c) for c in aggregate_result.contributors),
     )
     return values, assumptions
+
+
+def _contributor_assumption(contributor: ComparableContributor) -> str:
+    """One contributing reference's audit line: ref, content hash, per-100g snapshot."""
+
+    facts = contributor.facts
+    return (
+        f"comparable source: {contributor.source_ref} "
+        f"(sha256:{contributor.content_hash}; per_100g "
+        f"kcal={facts.calories:g} protein={facts.protein_g:g} "
+        f"carbs={facts.carbs_g:g} fat={facts.fat_g:g})"
+    )

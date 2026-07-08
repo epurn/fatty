@@ -159,6 +159,8 @@ def test_amount_adjust_preserves_provenance(client: TestClient, db_engine: Engin
         "source_type": "trusted_nutrition_database",
         "label": "USDA",
         "ref": _USDA_REF,
+        # A USDA source is not a user_text comparable-reference estimate.
+        "estimate_basis": None,
     }
 
     factory = create_session_factory(db_engine)

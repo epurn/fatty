@@ -291,9 +291,12 @@ never invented while better evidence is still reachable:
    aggregate is explicitly **reference-grade, not an authoritative source fact**: it
    ranks **below** a single-source match and **above** a pure model prior, and it is
    bounded by three guardrails so it can never become provenance-free averaging:
-   - **Source refs, always.** The aggregate names **every** contributing source
-     (`source_ref` list in `assumptions`) — it is never a single anonymous blended
-     number. A client can see it was averaged from N named references.
+   - **Source refs, always.** The aggregate names **every** contributing source in
+     `assumptions` — each `reference_source:<url>` with its **content hash** and its
+     immutable **per-100g fact snapshot** — never a single anonymous blended number, so
+     a client can audit exactly which references, with which facts, produced the
+     estimate. The read-model also surfaces the rough basis via the additive optional
+     `ItemSourceDTO.estimate_basis = comparable_reference` (the item stays `user_text`).
    - **Compatibility checks.** Only facts for a **comparable item on a comparable
      basis** are aggregated — normalized to the same canonical basis (per-100g) and
      restricted to the same food identity/kind. An incompatible-basis or unrelated-item
@@ -1007,11 +1010,16 @@ cross-user / unknown / unauthenticated fail-closed.
   `app/estimator/comparable_reference.py` and wires it into `UserTextMacroEstimator`
   (`user_text_step.py`) between the single-source reference lookup and the model-prior
   cold-pass, exactly as **Estimating a missing field** step 2 reserved. It is **additive
-  and non-breaking**: no schema, migration, DTO, or client-`SourceType` change (the
-  aggregate fills a `user_text` item's missing macros with `field_provenance =
-  estimated`; the method + compatibility summary + contributing `reference_source:<url>`
-  refs live in the existing `assumptions` list, and the run gains a `comparable_reference`
-  entry in `source_refs`). It reuses the FTY-166 search adapter, searched-result hardened
+  and non-breaking**: no schema, migration, or client-`SourceType` change (the aggregate
+  fills a `user_text` item's missing macros with `field_provenance = estimated`; the
+  method + compatibility summary + **each** contributing `reference_source:<url>` with
+  its **content hash and immutable per-100g fact snapshot** live in the existing
+  `assumptions` list, and the run gains a `comparable_reference` entry in `source_refs`).
+  The FTY-092 read-model gains one **additive, optional** field — `ItemSourceDTO.
+  estimate_basis = comparable_reference` — derived at read time from the item's own
+  `assumptions` (no new persisted column), so a client can tell a rough
+  comparable-reference macro estimate from a plain `user_text` item while the item's
+  `source_type` stays `user_text`. It reuses the FTY-166 search adapter, searched-result hardened
   fetch, `NamedFoodEstimate` extraction, `_to_per_100g` plausibility gate, and
   `sanitize_query` chokepoint unchanged — only the query is **brand-relaxed** and the
   aggregation (compatibility filtering, outlier rejection, median density) is a new

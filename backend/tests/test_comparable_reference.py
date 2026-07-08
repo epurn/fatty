@@ -88,7 +88,9 @@ def test_median_aggregate_over_compatible_sources() -> None:
     assert result.densities["protein_g"] == pytest.approx(0.05)
     assert result.densities["carbs_g"] == pytest.approx(0.12)
     assert result.densities["fat_g"] == pytest.approx(0.03)
-    assert len(result.source_refs) == 3
+    # Every survivor is retained with its ref, content hash, and per-100g fact snapshot.
+    assert len(result.contributors) == 3
+    assert all(c.content_hash and c.source_ref for c in result.contributors)
 
 
 def test_outlier_is_dropped_before_aggregation() -> None:
@@ -103,7 +105,7 @@ def test_outlier_is_dropped_before_aggregation() -> None:
     result = aggregate(candidates)
     assert result is not None
     assert result.dropped_outliers == 1
-    assert "reference_source:outlier" not in result.source_refs
+    assert "reference_source:outlier" not in [c.source_ref for c in result.contributors]
     assert result.densities["protein_g"] == pytest.approx(0.05)
     assert result.densities["carbs_g"] == pytest.approx(0.12)
 

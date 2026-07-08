@@ -894,9 +894,12 @@ The backend exposes four health-check endpoints, all returning structured JSON w
   aggregation lives in `app/estimator/comparable_reference.py`. Additive and
   non-breaking: no schema, migration, or serving-math change; a `user_text` item stays
   `user_text` and only its missing macros are filled (`field_provenance = estimated`,
-  the method + compatibility summary + contributing `reference_source:<url>` refs in
-  `assumptions`; the run gains a `comparable_reference` `source_refs` entry). Exact
-  official/reference evidence still wins, and user-stated calories/macros are never
+  the method + compatibility summary + **each** contributing `reference_source:<url>`
+  with its content hash and per-100g fact snapshot in `assumptions`; the run gains a
+  `comparable_reference` `source_refs` entry). The FTY-092 read-model gains one additive
+  optional field (`ItemSourceDTO.estimate_basis = comparable_reference`, derived at read
+  time) so a client can distinguish the rough aggregate from a plain `user_text` item.
+  Exact official/reference evidence still wins, and user-stated calories/macros are never
   overwritten.
 - **FTY-278 (contract only; no code, no migration in this story).** Redefines the
   clarification boundary from whole-event to **item-scoped** for a mixed food log,

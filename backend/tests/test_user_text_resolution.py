@@ -35,6 +35,7 @@ from app.enums import (
     DerivedItemStatus,
     EstimationJobStatus,
     LogEventStatus,
+    MacroEstimateBasis,
     SourceType,
 )
 from app.estimator.fdc import ProductFacts
@@ -304,11 +305,13 @@ def test_sobeys_wrap_resolves_without_clarification(client: TestClient, session:
     assert _SOBEYS_RAW_PHRASE not in str(evidence.assumptions)
     assert session.scalars(select(Product)).all() == []
 
-    # The read-model surfaces "You logged", not a "Label scan".
+    # The read-model surfaces "You logged", not a "Label scan"; a plain user_text item
+    # with unknown macros carries no comparable-reference estimate basis.
     descriptor = build_item_source(session, food)
     assert descriptor is not None
     assert descriptor.source_type is SourceType.USER_TEXT
     assert descriptor.label == "You logged"
+    assert descriptor.estimate_basis is None
 
 
 @pytest.mark.parametrize("stated", [580.0, 580.0, 580.0])
@@ -691,9 +694,23 @@ def test_missing_macros_filled_from_comparable_aggregate(
     # Labelled a rough comparable-reference aggregate, naming every contributing source.
     assert any("comparable-reference aggregate" in a for a in evidence.assumptions)
     assert sum("reference_source:" in a for a in evidence.assumptions) == 3
+    # Contributor-level provenance is retained: each contributing reference records a
+    # content hash and its immutable per-100g fact snapshot (never the raw page).
+    contributor_lines = [a for a in evidence.assumptions if a.startswith("comparable source:")]
+    assert len(contributor_lines) == 3
+    assert all("sha256:" in line and "per_100g" in line for line in contributor_lines)
     # No raw page text is ever retained.
     assert _RAW_PAGE_SENTINEL not in str(evidence.assumptions)
     assert fetcher.fetched == [f"https://ref{i}.example.com/wrap" for i in range(3)]
+
+    # Read-model: the public item source exposes the rough comparable-reference basis so
+    # a client can distinguish it from a plain user_text item — while the item's own
+    # source_type stays user_text (the calories are still the user's stated number).
+    descriptor = build_item_source(session, food)
+    assert descriptor is not None
+    assert descriptor.source_type is SourceType.USER_TEXT
+    assert descriptor.label == "You logged"
+    assert descriptor.estimate_basis is MacroEstimateBasis.COMPARABLE_REFERENCE
 
     # Search queries carry item identity + nutrition intent only — the comparable query
     # drops the brand, and no raw diary phrase ever egresses.
@@ -833,6 +850,11 @@ def test_exact_reference_wins_over_comparable_aggregate(
     assert evidence.assumptions is not None
     assert any("reference_source" in a for a in evidence.assumptions)
     assert not any("comparable-reference aggregate" in a for a in evidence.assumptions)
+    # A single-source reference fill is not the comparable-reference aggregate: the
+    # read-model exposes no comparable-reference estimate basis.
+    descriptor = build_item_source(session, food)
+    assert descriptor is not None
+    assert descriptor.estimate_basis is None
 
 
 # --- representative regression: clarification is sparse ---------------------------

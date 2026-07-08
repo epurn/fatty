@@ -27,7 +27,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.enums import CandidateType, CorrectionSource, DerivedItemStatus, SourceType
+from app.enums import (
+    CandidateType,
+    CorrectionSource,
+    DerivedItemStatus,
+    MacroEstimateBasis,
+    SourceType,
+)
 
 #: Field-name length cap for an edit request; comfortably covers every editable
 #: field while bounding unbounded input.
@@ -83,6 +89,12 @@ class ItemSourceDTO(BaseModel):
     - ``ref`` — the stable ``source_ref`` (e.g. ``usda_fdc:<id>``,
       ``open_food_facts:<barcode>``, ``official_source:<url>``) for the sheet's
       deeper provenance line. For an ``official_source`` item this is the URL only.
+    - ``estimate_basis`` — *(FTY-281, optional)* how a ``user_text`` item's **missing**
+      macros were filled. ``comparable_reference`` marks a **rough comparable-reference
+      aggregate** estimate, so a client can tell it from a plain user-stated item whose
+      macros are unknown; ``None`` (the common case) when no such aggregate backs the
+      item. The item's ``source_type`` stays ``user_text`` — the calories are still the
+      user's stated number; only the macro estimate carries this secondary basis.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -90,6 +102,7 @@ class ItemSourceDTO(BaseModel):
     source_type: SourceType
     label: str
     ref: str
+    estimate_basis: MacroEstimateBasis | None = None
 
 
 class DerivedFoodItemDTO(BaseModel):

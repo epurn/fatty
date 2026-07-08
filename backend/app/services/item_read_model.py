@@ -35,7 +35,13 @@ from urllib.parse import urlparse
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
-from app.enums import CandidateType, CorrectionSource, SourceType
+from app.enums import (
+    ESTIMATE_BASIS_ASSUMPTION_PREFIX,
+    CandidateType,
+    CorrectionSource,
+    MacroEstimateBasis,
+    SourceType,
+)
 from app.models.corrections import Correction
 from app.models.derived import DerivedExerciseItem, DerivedFoodItem
 from app.models.food_sources import EvidenceSource
@@ -120,7 +126,29 @@ def build_item_source(session: Session, item: DerivedFoodItem) -> ItemSourceDTO 
         source_type=source_type,
         label=_source_label(source_type, evidence.source_ref),
         ref=evidence.source_ref,
+        estimate_basis=_macro_estimate_basis(evidence.assumptions),
     )
+
+
+def _macro_estimate_basis(assumptions: list[str] | None) -> MacroEstimateBasis | None:
+    """Recover a ``user_text`` item's macro estimate basis from its own evidence row.
+
+    Derived **at read time** from the already-stored ``assumptions`` — the FTY-281
+    comparable-reference tier records an ``ESTIMATE_BASIS_ASSUMPTION_PREFIX`` marker
+    there, so the read-model can distinguish a rough comparable-reference macro estimate
+    from a plain user_text item with **no** new persisted column (the same derive-don't-
+    store philosophy as ``is_edited``). An absent or unrecognized marker yields ``None``
+    defensively rather than failing the read.
+    """
+
+    for assumption in assumptions or ():
+        if assumption.startswith(ESTIMATE_BASIS_ASSUMPTION_PREFIX):
+            raw = assumption[len(ESTIMATE_BASIS_ASSUMPTION_PREFIX) :].strip()
+            try:
+                return MacroEstimateBasis(raw)
+            except ValueError:
+                return None
+    return None
 
 
 def item_is_edited(session: Session, item_type: CandidateType, item_id: uuid.UUID) -> bool:
