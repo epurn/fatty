@@ -130,6 +130,25 @@ _STOPWORDS: Final[frozenset[str]] = frozenset(
         "to",
         "go",
         "for",
+        # pronouns / possessives: function words, never a food identity token
+        "i",
+        "me",
+        "my",
+        "you",
+        "your",
+        "yours",
+        "we",
+        "our",
+        "us",
+        "it",
+        "its",
+        "they",
+        "them",
+        "their",
+        "this",
+        "that",
+        "these",
+        "those",
         "fresh",
         "style",
         "flavour",
@@ -162,13 +181,17 @@ _STOPWORDS: Final[frozenset[str]] = frozenset(
 
 #: Tokens that are **never** part of a food's identity and must not egress in a search
 #: query even after tokenization: prompt-injection / instruction framing a parser-derived
-#: name could smuggle (``ignore``/``system``/``instructions``/``reveal``…) and the
-#: personal-context vocabulary the data-minimization rule forbids (``profile``/``goal``/
-#: ``weight``/``history``/``id``…). Dropped by :func:`sanitized_identity` so only bounded
-#: identity/nutrition tokens reach the provider. This is a deny-list, not an allow-list
-#: (item identity is open-vocabulary); it is intentionally conservative — words that could
-#: plausibly name a food are left in — but it strips the instruction/meta tokens a naive
-#: ``[a-z0-9]+`` tokenizer would otherwise pass straight through.
+#: name could smuggle (``ignore``/``system``/``instructions``/``reveal``…), the
+#: chat/reasoning-framing vocabulary an injection uses to address the model
+#: (``developer``/``message``/``hidden``/``chain``…), and the personal-context vocabulary
+#: the data-minimization rule forbids (``profile``/``goal``/``weight``/``history``/``id``…).
+#: Dropped by :func:`sanitized_identity` so only bounded identity/nutrition tokens reach the
+#: provider. Food identity is open-vocabulary, so this deny-list cannot be exhaustive on its
+#: own; it is one of three layers :func:`sanitized_identity` composes (deny-list +
+#: stopword strip + a hard :data:`MAX_IDENTITY_TOKENS` egress cap) so that an arbitrary
+#: prompt-like parser phrase is both stripped of known framing/meta vocabulary *and*
+#: length-bounded to a food-identity-sized window before egress. Words that could plausibly
+#: name a food are intentionally left in.
 _NON_IDENTITY_TOKENS: Final[frozenset[str]] = frozenset(
     {
         # prompt-injection / instruction framing
@@ -200,6 +223,31 @@ _NON_IDENTITY_TOKENS: Final[frozenset[str]] = frozenset(
         "prior",
         "above",
         "below",
+        # chat / reasoning framing an injection uses to address the model or extract its
+        # hidden state (``developer message``, ``hidden chain of thought``, role markers a
+        # naive tokenizer keeps as bare words). None name a food.
+        "developer",
+        "message",
+        "messages",
+        "hidden",
+        "chain",
+        "thought",
+        "thoughts",
+        "reasoning",
+        "role",
+        "roles",
+        "user",
+        "human",
+        "model",
+        "models",
+        "context",
+        "conversation",
+        "turn",
+        "content",
+        "meta",
+        "internal",
+        "verbatim",
+        "disclose",
         # personal-context vocabulary (profile, goals, body metrics, history, ids)
         "profile",
         "goal",
@@ -217,6 +265,14 @@ _NON_IDENTITY_TOKENS: Final[frozenset[str]] = frozenset(
         "secret",
     }
 )
+
+#: Hard upper bound on the number of identity tokens :func:`sanitized_identity` egresses.
+#: A real item identity (name + brand) is a handful of words; a longer token run is a sign
+#: of a smuggled instruction/context phrase riding on the parser-derived name. Capping the
+#: token count is the structural guarantee behind the open-vocabulary deny-list: even a
+#: prompt-like word that is not on the deny-list can only egress inside this bounded,
+#: food-identity-sized window, so a bulk instruction/context phrase cannot leave whole.
+MAX_IDENTITY_TOKENS: Final[int] = 12
 
 _TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]+")
 
@@ -360,8 +416,9 @@ def sanitized_identity(name: str) -> str:
 
     The comparable-reference (and exact) reference search must egress the item's
     *identity only* — the same bounded, lower-cased ``[a-z0-9]+`` token vocabulary the
-    deterministic compatibility check reads — never the raw parser phrase. Two layers of
-    stripping apply:
+    deterministic compatibility check reads — never the raw parser phrase. Item identity
+    is open-vocabulary, so no single filter is sufficient; three layers compose so that a
+    prompt-like parser phrase cannot egress as identity:
 
     - **Structural framing** a prompt injection would use to smuggle instructions past a
       naive concatenation (quotes, colons, code fences, newlines) carries no identity
@@ -369,17 +426,30 @@ def sanitized_identity(name: str) -> str:
       (``<end>``, ``<|im_start|>``…) are stripped **with their inner tokens** via
       :data:`_STRUCTURAL_FRAMING_RE` first — the tokenizer alone would keep the bare
       word (``end``) and let framing residue ride along on the query.
-    - **Instruction / personal-context tokens** that *survive* tokenization but are never
-      part of a food's identity (``ignore``, ``system``, ``instructions``, ``profile``,
-      ``goal``…) are removed via :data:`_NON_IDENTITY_TOKENS`, so prompt-like parser
-      output cannot ride along on the query even as bare words.
+    - **Non-identity tokens** that *survive* tokenization but are never part of a food's
+      identity are removed: instruction / chat-framing / personal-context words via
+      :data:`_NON_IDENTITY_TOKENS` (``ignore``, ``system``, ``developer``, ``message``,
+      ``hidden``, ``chain``, ``profile``, ``goal``…) and articles / prepositions /
+      marketing filler via :data:`_STOPWORDS` (``the``, ``and``, ``with``…). Prompt-like
+      or filler parser output cannot ride along on the query even as bare words.
+    - **Token-count bound** — because the deny-list cannot be exhaustive over an
+      open-vocabulary identity, the surviving identity is truncated to the first
+      :data:`MAX_IDENTITY_TOKENS`. A real name + brand fits comfortably; a longer run of
+      would-be-identity words is smuggled context and is dropped, so an arbitrary
+      instruction/context phrase can only ever egress inside a bounded, food-sized window
+      rather than in bulk.
 
     The caller still passes the result through the ``sanitize_query`` chokepoint
     (control-char strip + length bound) before egress.
     """
 
     unframed = _STRUCTURAL_FRAMING_RE.sub(" ", name)
-    return " ".join(token for token in _tokens(unframed) if token not in _NON_IDENTITY_TOKENS)
+    identity = [
+        token
+        for token in _tokens(unframed)
+        if token not in _NON_IDENTITY_TOKENS and token not in _STOPWORDS
+    ]
+    return " ".join(identity[:MAX_IDENTITY_TOKENS])
 
 
 def cold_pass_identity(names: list[str | None]) -> str | None:
