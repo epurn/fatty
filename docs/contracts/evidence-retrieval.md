@@ -291,9 +291,12 @@ never invented while better evidence is still reachable:
    aggregate is explicitly **reference-grade, not an authoritative source fact**: it
    ranks **below** a single-source match and **above** a pure model prior, and it is
    bounded by three guardrails so it can never become provenance-free averaging:
-   - **Source refs, always.** The aggregate names **every** contributing source
-     (`source_ref` list in `assumptions`) — it is never a single anonymous blended
-     number. A client can see it was averaged from N named references.
+   - **Source refs, always.** The aggregate names **every** contributing source in
+     `assumptions` — each `reference_source:<url>` with its **content hash** and its
+     immutable **per-100g fact snapshot** — never a single anonymous blended number, so
+     a client can audit exactly which references, with which facts, produced the
+     estimate. The read-model also surfaces the rough basis via the additive optional
+     `ItemSourceDTO.estimate_basis = comparable_reference` (the item stays `user_text`).
    - **Compatibility checks.** Only facts for a **comparable item on a comparable
      basis** are aggregated — normalized to the same canonical basis (per-100g) and
      restricted to the same food identity/kind. An incompatible-basis or unrelated-item
@@ -306,7 +309,24 @@ never invented while better evidence is still reachable:
      produced** — the field falls through to step 3 rather than averaging noise.
    The result is recorded `field_provenance = estimated` with the aggregation method and
    the contributing `source_ref` list in `assumptions` — never presented as a
-   user-stated or single-source fact.
+   user-stated or single-source fact. **Implemented in FTY-281**
+   (`app/estimator/comparable_reference.py`, wired into `UserTextMacroEstimator`): after
+   the exact (identity + brand) reference lookup misses, a **brand-dropped** identity +
+   `nutrition facts` search surfaces comparable pages; each transcribed page is
+   compatibility-checked (food form/category **and** ingredient/flavor overlap against
+   the item identity — the overlap must be a real **food** term: prompt-injection /
+   chat-framing / personal-context words the raw diary phrase and an adversarial page
+   happen to share are excluded, so a page with no shared ingredient/flavor can never
+   read as compatible) and canonicalised to per-100g (per-serving facts with no gram
+   basis, and implausible facts, are excluded), outliers are dropped in Atwater
+   macro-fraction space, and the survivors' **median** grams-per-kcal density per macro
+   is scaled to the stated calorie total. The minimum counts **distinct** reference
+   sources: duplicate search hits sharing one `reference_source:<url>` collapse to a
+   single source before the count, so repeated hits of one page can never satisfy
+   `MIN_COMPARABLE_SOURCES`. Fewer than `MIN_COMPARABLE_SOURCES` distinct survivors,
+   or a material disagreement after outlier filtering, falls through to step 3. The tier
+   is recorded on the run `source_refs` as `comparable_reference`; the item's own
+   `source_type` stays `user_text` (only its missing macros are filled).
 3. **Model prior last — cold-pass, never a one-shot guess.** Only when neither a
    source-backed lookup nor a plausible comparable-source aggregate is available does the
    field fall to a pure `model_prior` estimate (`field_provenance = estimated`, the reason
@@ -992,6 +1012,24 @@ cross-user / unknown / unauthenticated fail-closed.
   per-100g values, get `basis = 'per_100g'`, and `field_provenance = NULL`; the
   migration is fully reversible. The source hierarchy, lookup-status vocabulary, and
   serving math are unchanged.
+- **FTY-281 (implements the comparable-source aggregation tier).** Lands
+  `app/estimator/comparable_reference.py` and wires it into `UserTextMacroEstimator`
+  (`user_text_step.py`) between the single-source reference lookup and the model-prior
+  cold-pass, exactly as **Estimating a missing field** step 2 reserved. It is **additive
+  and non-breaking**: no schema, migration, or client-`SourceType` change (the aggregate
+  fills a `user_text` item's missing macros with `field_provenance = estimated`; the
+  method + compatibility summary + **each** contributing `reference_source:<url>` with
+  its **content hash and immutable per-100g fact snapshot** live in the existing
+  `assumptions` list, and the run gains a `comparable_reference` entry in `source_refs`).
+  The FTY-092 read-model gains one **additive, optional** field — `ItemSourceDTO.
+  estimate_basis = comparable_reference` — derived at read time from the item's own
+  `assumptions` (no new persisted column), so a client can tell a rough
+  comparable-reference macro estimate from a plain `user_text` item while the item's
+  `source_type` stays `user_text`. It reuses the FTY-166 search adapter, searched-result hardened fetch,
+  `NamedFoodEstimate` extraction schema, `_to_per_100g` plausibility gate, and `sanitize_query` chokepoint —
+  only the query is **brand-relaxed**, each page's transcription is drawn over the **cold-pass** self-consistency
+  path (N independent passes gated on committed-macro-density agreement, wherever an LLM participates), and the
+  aggregation (compatibility filtering, outlier rejection, median density) is a new **deterministic** step. No live network in tests.
 - FTY-088 adds a **diagnostics-only** LLM-provider descriptor to
   `GET /healthz/sources` (`id = claude_code`, `source_type = llm_provider`,
   `kinds = [estimation]`). It is additive and surfaces operator/health state only:

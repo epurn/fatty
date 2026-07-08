@@ -836,8 +836,18 @@
       },
       "ItemSourceDTO": {
         "additionalProperties": false,
-        "description": "Per-item provenance descriptor for the Today timeline + sheet (FTY-092).\n\nDerived **read-only** from the item's ``evidence_sources`` row \u2014 there is no\npersisted provenance column. The client renders the always-on source icon and\nlabel from these three fields without joining ``evidence_sources`` /\n``corrections`` itself:\n\n- ``source_type`` \u2014 the evidence-hierarchy classification; a ``model_prior``\n  value is the signal to render the \"\u2248 rough estimate \u00b7 make it exact\" treatment.\n- ``label`` \u2014 a human, display-ready string mapped deterministically from\n  ``source_type`` / ``ref`` (e.g. \"USDA\", \"Open Food Facts\", \"Label scan\", the\n  official-source host, \"Rough estimate\").\n- ``ref`` \u2014 the stable ``source_ref`` (e.g. ``usda_fdc:<id>``,\n  ``open_food_facts:<barcode>``, ``official_source:<url>``) for the sheet's\n  deeper provenance line. For an ``official_source`` item this is the URL only.",
+        "description": "Per-item provenance descriptor for the Today timeline + sheet (FTY-092).\n\nDerived **read-only** from the item's ``evidence_sources`` row \u2014 there is no\npersisted provenance column. The client renders the always-on source icon and\nlabel from these three fields without joining ``evidence_sources`` /\n``corrections`` itself:\n\n- ``source_type`` \u2014 the evidence-hierarchy classification; a ``model_prior``\n  value is the signal to render the \"\u2248 rough estimate \u00b7 make it exact\" treatment.\n- ``label`` \u2014 a human, display-ready string mapped deterministically from\n  ``source_type`` / ``ref`` (e.g. \"USDA\", \"Open Food Facts\", \"Label scan\", the\n  official-source host, \"Rough estimate\").\n- ``ref`` \u2014 the stable ``source_ref`` (e.g. ``usda_fdc:<id>``,\n  ``open_food_facts:<barcode>``, ``official_source:<url>``) for the sheet's\n  deeper provenance line. For an ``official_source`` item this is the URL only.\n- ``estimate_basis`` \u2014 *(FTY-281, optional)* how a ``user_text`` item's **missing**\n  macros were filled. ``comparable_reference`` marks a **rough comparable-reference\n  aggregate** estimate, so a client can tell it from a plain user-stated item whose\n  macros are unknown; ``None`` (the common case) when no such aggregate backs the\n  item. The item's ``source_type`` stays ``user_text`` \u2014 the calories are still the\n  user's stated number; only the macro estimate carries this secondary basis.",
         "properties": {
+          "estimate_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MacroEstimateBasis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -1094,6 +1104,14 @@
         ],
         "title": "LoginRequest",
         "type": "object"
+      },
+      "MacroEstimateBasis": {
+        "description": "How a ``user_text`` item's *missing* macros were filled (FTY-281 read-model).\n\nA user-stated calorie item keeps ``source_type = user_text`` (its calories are the\nnumber the user typed); this secondary signal \u2014 surfaced on\n:class:`~app.schemas.corrections.ItemSourceDTO.estimate_basis` \u2014 lets a client tell\na **rough comparable-reference aggregate** macro estimate from a plain user-stated\nitem whose macros are unknown, so the two never read as the same evidence.\n``None`` on the DTO means no comparable-reference aggregate backs the item.",
+        "enum": [
+          "comparable_reference"
+        ],
+        "title": "MacroEstimateBasis",
+        "type": "string"
       },
       "MetabolicFormula": {
         "description": "Resting-metabolic-rate formula preference (FTY-022).\n\nMifflin-St Jeor is the v1 RMR formula (see the system overview). The formula\ncarries a sex-dependent additive constant, and the user's choice of that\nconstant *is* the profile's metabolic-formula preference (captured by FTY-021\nwith deliberately non-clinical wording, mapped by FTY-022's RMR calculator):\n\n- :attr:`MIFFLIN_ST_JEOR_PLUS_5` \u2014 the ``+5`` constant variant.\n- :attr:`MIFFLIN_ST_JEOR_MINUS_161` \u2014 the ``-161`` constant variant.\n\n:attr:`MIFFLIN_ST_JEOR` remains the *unspecified* family default for a\nfreshly created, not-yet-captured profile: it names the formula but carries\nno constant, so RMR cannot be computed until the user selects a variant. The\ncapture UI only ever writes one of the two variants, and those two are the\nonly valid inputs to the target calculator (see\n:mod:`app.estimator.calculator`).",

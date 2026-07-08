@@ -303,6 +303,29 @@ class SourceType(StrEnum):
     MODEL_PRIOR = "model_prior"
 
 
+class MacroEstimateBasis(StrEnum):
+    """How a ``user_text`` item's *missing* macros were filled (FTY-281 read-model).
+
+    A user-stated calorie item keeps ``source_type = user_text`` (its calories are the
+    number the user typed); this secondary signal — surfaced on
+    :class:`~app.schemas.corrections.ItemSourceDTO.estimate_basis` — lets a client tell
+    a **rough comparable-reference aggregate** macro estimate from a plain user-stated
+    item whose macros are unknown, so the two never read as the same evidence.
+    ``None`` on the DTO means no comparable-reference aggregate backs the item.
+    """
+
+    COMPARABLE_REFERENCE = "comparable_reference"
+
+
+#: Machine-readable ``evidence_sources.assumptions`` marker recording a user_text
+#: item's macro estimate basis (FTY-281). The comparable-reference tier writes
+#: ``"macro estimate basis: comparable_reference"`` so the FTY-092 read-model derives
+#: :class:`~app.schemas.corrections.ItemSourceDTO.estimate_basis` at read time from
+#: already-stored provenance, with **no** new persisted column. The suffix is a
+#: :class:`MacroEstimateBasis` value.
+ESTIMATE_BASIS_ASSUMPTION_PREFIX = "macro estimate basis: "
+
+
 class SavedFoodSource(StrEnum):
     """Provenance of a ``saved_foods`` row (FTY-052).
 

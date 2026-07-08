@@ -28,13 +28,17 @@ For each claimed candidate the step:
    ``products`` cache row is written.
 3. **Fills missing macros honestly** (:class:`UserTextMacroEstimator`, optional):
    a macro the user did not state is estimated from the item identity in the fixed
-   order **source-backed reference lookup → model-prior cold-pass**, recorded
-   ``field_provenance = estimated`` with the source in ``assumptions``; or left
-   **unknown/``None``** when no credible estimate survives — **never** a silent
-   user-supplied ``0``. A stated macro is preserved exactly (``user_stated``). The
-   model-prior estimate is drawn through **N independent cold passes** and gated on
-   sampling agreement (never a one-shot verbalized confidence); when the passes
-   disagree the macro is left unknown rather than re-asking the user.
+   order **single-source reference lookup → comparable-reference aggregate (FTY-281)
+   → model-prior cold-pass**, recorded ``field_provenance = estimated`` with the source
+   in ``assumptions``, or left **unknown/``None``** — **never** a silent ``0``. When the
+   exact lookup misses, several *compatible* public reference items (brand-dropped search,
+   compatibility-checked, outlier-filtered, median-aggregated —
+   :mod:`app.estimator.comparable_reference`) fill the macros as **rough** evidence before
+   any model prior. A stated macro is preserved exactly (``user_stated``). Wherever an LLM
+   participates — the comparable-page transcription and the model-prior estimate alike —
+   it is drawn over **N independent cold passes** gated on sampling agreement (never a
+   one-shot verbalized confidence); disagreeing passes leave the macro unknown, never a
+   re-ask.
 
 Security: the raw diary phrase is never persisted — the evidence row stores only the
 extracted, validated facts, a hash over them, and the timestamp. The LLM extracts
@@ -54,6 +58,16 @@ from typing import cast
 from app.estimator.clarify_policy import (
     BASIS_DOCUMENTED_TUNABLE,
     ClarifyPolicy,
+)
+from app.estimator.comparable_reference import (
+    COMPARABLE_REFERENCE_SOURCE,
+    ComparableAggregate,
+    ComparableCandidate,
+    aggregate,
+    build_missing_macro_fill,
+    cold_pass_identity,
+    compatibility,
+    sanitized_identity,
 )
 from app.estimator.evidence_utils import _record_source_ref
 from app.estimator.food_serving import NutritionFacts
@@ -86,6 +100,7 @@ from app.estimator.pipeline import (
 )
 from app.estimator.reference_fetch import ReferenceFetchSettings, fetch_searched_result
 from app.estimator.search import SearchProvider, SearchStatus
+from app.estimator.search_sanitization import sanitize_query
 from app.llm.base import Provider
 from app.llm.errors import (
     LLMConfigurationError,
@@ -163,6 +178,15 @@ _MACRO_NAMES = ("protein_g", "carbs_g", "fat_g")
 #: Minimum cold-pass samples required before agreement can be attested (a single
 #: sample trivially agrees with itself and says nothing about consistency).
 _MIN_SAMPLES_FOR_AGREEMENT = 2
+
+#: The transient/response/config/validation errors one LLM pass may raise; a pass that
+#: raises any of them is treated as a failed (``None``) sample rather than propagating.
+_LLM_SAMPLE_ERRORS = (
+    StructuredOutputValidationError,
+    LLMResponseError,
+    LLMConfigurationError,
+    LLMTransientError,
+)
 
 
 def _user_text_content_hash(
@@ -293,6 +317,13 @@ class UserTextMacroEstimator:
                 per_100g, calories, missing, source_ref, tier="reference_source"
             )
 
+        comparable = self._comparable_aggregate(context, candidate)
+        if comparable is not None:
+            values, assumptions = build_missing_macro_fill(comparable, calories, missing)
+            return _EstimatedMacros(
+                values=values, source_ref=COMPARABLE_REFERENCE_SOURCE, assumptions=assumptions
+            )
+
         cold = self._model_prior_composition(candidate)
         if cold is not None:
             return self._scale_missing(
@@ -343,7 +374,23 @@ class UserTextMacroEstimator:
         if not self.reference_fetch_settings.is_available:
             return None
 
-        query = f"{_identity_query(candidate)} {REFERENCE_SEARCH_INTENT}"
+        # Exact reference lookup: item identity **with** its brand (so a brand-exact page
+        # can win) plus the fixed nutrition intent — but the brand-inclusive identity is
+        # reduced to bounded ``[a-z0-9]+`` tokens with instruction/personal-context tokens
+        # stripped (:func:`sanitized_identity`) and passed through the ``sanitize_query``
+        # chokepoint, exactly like the comparable tier, so prompt-like parser output in the
+        # name never egresses to the provider.
+        identity = sanitized_identity(_identity_query(candidate))
+        if not identity:
+            # Fail closed on an empty sanitized identity (FTY-281 recognizable-item /
+            # sanitized-identity boundary). With no surviving item-identity token the query
+            # degenerates to the broad fixed intent (``nutrition facts``) alone, and this
+            # single-source path has **no** per-page compatibility gate — it would commit
+            # the first plausible unrelated page as a source-backed match. Fall through to
+            # the comparable / model-prior / unknown tiers instead of issuing a broad
+            # source-backed lookup.
+            return None
+        query = sanitize_query(f"{identity} {REFERENCE_SEARCH_INTENT}")
         result = self.search_provider.search(query)
         if result.status is not SearchStatus.SUCCESS:
             return None
@@ -359,63 +406,173 @@ class UserTextMacroEstimator:
             text = self._fetch_reference(search_candidate.url)
             if text is None:
                 continue
-            estimate = self._extract(text)
-            if estimate is None or estimate.facts is None:
+            # Single-source authoritative lookup: one transcription pass, plausibility-gated.
+            per_100g = self._composition(self._one_estimate(self._extract_prompt(text)))
+            if per_100g is None:
                 continue
-            canonical = _to_per_100g(estimate.facts)
-            if canonical is None:
-                continue
-            per_100g, _serving_g = canonical
             return per_100g, source_ref
         return None
+
+    def _comparable_aggregate(
+        self, context: EstimationContext, candidate: CandidateDraft
+    ) -> ComparableAggregate | None:
+        """Search relaxed identity for compatible references and median-aggregate them.
+
+        The FTY-281 tier between the single-source reference match and the model prior:
+        when the exact (identity + brand) reference lookup missed, search the
+        **brand-dropped** item identity plus the fixed nutrition intent for *comparable*
+        public reference pages, transcribe each page's facts + product name, keep only
+        the compatible, plausible ones (:func:`compatibility` + ``_to_per_100g``), and
+        median-aggregate the survivors dropping outliers (:func:`aggregate`). Returns
+        ``None`` when the tier is unavailable, nothing confident is found, too few
+        compatible sources survive, or they materially disagree. All egress flows
+        through the injected search + reference-fetch seams; the step opens no socket.
+        """
+
+        if not (self.search_provider.enabled and self.search_provider.available):
+            return None
+        if not self.reference_fetch_settings.is_available:
+            return None
+
+        # Relaxed query: drop the brand so *comparable* (not brand-exact) references
+        # surface — item identity + the fixed nutrition intent only, never a raw diary
+        # phrase or personal context. The brand-dropped identity is reduced to its bounded
+        # ``[a-z0-9]+`` identity tokens (:func:`sanitized_identity`) so punctuation and
+        # structural framing a prompt injection would smuggle through the parser-derived
+        # name cannot ride along, and the whole string is passed through the
+        # ``sanitize_query`` chokepoint (control-char strip + length bound) before egress.
+        identity = sanitized_identity(candidate.name)
+        if not identity:
+            # Fail closed on an empty sanitized identity, as the exact tier does: with no
+            # item-identity token the brand-dropped query degenerates to the broad fixed
+            # intent alone, so aggregate over pages the resolver can no longer tie to the
+            # item. Fall through to the model-prior / unknown tiers instead.
+            return None
+        query = sanitize_query(f"{identity} {REFERENCE_SEARCH_INTENT}")
+        result = self.search_provider.search(query)
+        if result.status is not SearchStatus.SUCCESS:
+            return None
+
+        candidates: list[ComparableCandidate] = []
+        recorded = False
+        for search_candidate in result.candidates:
+            source_ref = f"{REFERENCE_SOURCE_TYPE}:{search_candidate.url}"
+            if len(source_ref) > MAX_SOURCE_REF_LEN:
+                continue
+            if not recorded:
+                _record_source_ref(context, COMPARABLE_REFERENCE_SOURCE)
+                recorded = True
+            found = self._comparable_from_url(candidate, search_candidate.url, source_ref)
+            if found is not None:
+                candidates.append(found)
+
+        return aggregate(candidates)
+
+    def _comparable_from_url(
+        self, candidate: CandidateDraft, url: str, source_ref: str
+    ) -> ComparableCandidate | None:
+        """Fetch + cold-pass-transcribe one reference URL into a comparable, or ``None``.
+
+        ``None`` when the page fails to fetch, its cold-pass transcription does not agree
+        (:meth:`_extract_comparable`), its item is **not a comparable** (wrong food form
+        or no ingredient/flavor overlap — :func:`compatibility`), or its facts are
+        implausible / not canonicalisable to a positive-calorie per-100g basis.
+        """
+
+        text = self._fetch_reference(url)
+        if text is None:
+            return None
+        extracted = self._extract_comparable(text)
+        if extracted is None:
+            return None
+        per_100g, product_name = extracted
+        match = compatibility(candidate.name, product_name)
+        if match is None:
+            return None
+        return ComparableCandidate(
+            facts=per_100g,
+            source_ref=source_ref,
+            shared_terms=match.shared_terms,
+            form=match.form,
+        )
 
     def _model_prior_composition(self, candidate: CandidateDraft) -> NutritionFacts | None:
         """Estimate a per-100g composition from model prior via N cold passes.
 
-        Draws ``MACRO_ESTIMATE_NUM_SAMPLES`` independent estimates in parallel, gates
-        on their **sampling agreement** over the committed macro density — grams per
-        kcal, so the calorie density used to scale to the stated total is part of the
-        gate (``USER_TEXT_MACRO_ESTIMATE_POLICY``) — and returns the mean composition
-        only when the passes agree, otherwise ``None`` (the macros stay unknown). A
-        single over-confident sample can never finalize a fabricated number.
+        Gates ``MACRO_ESTIMATE_NUM_SAMPLES`` independent estimates on their **sampling
+        agreement** over the committed macro density (grams per kcal, so calorie density
+        is part of the gate — ``USER_TEXT_MACRO_ESTIMATE_POLICY``) and returns their mean
+        only when the passes agree; a single over-confident sample never finalizes a
+        fabricated number.
         """
 
-        samples = self._sample_model_prior(_identity_query(candidate))
-        compositions = [self._composition(sample) for sample in samples]
-        usable = [facts for facts in compositions if facts is not None]
+        prompt = _MODEL_PRIOR_PROMPT.format(identity=_identity_query(candidate))
+        samples = self._draw_estimates(prompt, "user-text-macro")
+        # A failed/unresolved/implausible pass is disagreement: fail closed below.
+        usable = [c for c in (self._composition(s) for s in samples) if c is not None]
         if len(usable) < MACRO_ESTIMATE_NUM_SAMPLES:
-            # A failed/unresolved/implausible pass is disagreement: fail closed.
             return None
-        agreement = _macro_agreement(usable)
-        if USER_TEXT_MACRO_ESTIMATE_POLICY.should_clarify(agreement):
+        if USER_TEXT_MACRO_ESTIMATE_POLICY.should_clarify(_macro_agreement(usable)):
             return None
         return _mean_composition(usable)
 
-    def _sample_model_prior(self, identity: str) -> tuple[NamedFoodEstimate | None, ...]:
-        """Draw N model-prior estimates concurrently; a failed pass is ``None``."""
+    def _one_estimate(self, prompt: str) -> NamedFoodEstimate | None:
+        """One LLM estimate for ``prompt``; a transient/schema-invalid pass is ``None``."""
 
-        prompt = _MODEL_PRIOR_PROMPT.format(identity=identity)
+        try:
+            return self.provider.structured_completion(prompt, NamedFoodEstimate)
+        except _LLM_SAMPLE_ERRORS:
+            return None
 
-        def _one() -> NamedFoodEstimate | None:
-            try:
-                return self.provider.structured_completion(prompt, NamedFoodEstimate)
-            except (
-                StructuredOutputValidationError,
-                LLMResponseError,
-                LLMConfigurationError,
-                LLMTransientError,
-            ):
-                return None
+    def _draw_estimates(
+        self, prompt: str, thread_prefix: str
+    ) -> tuple[NamedFoodEstimate | None, ...]:
+        """Draw ``MACRO_ESTIMATE_NUM_SAMPLES`` independent estimates concurrently — the
+        shared cold-pass sampler behind both LLM steps in this tier (model-prior fallback
+        and comparable-page transcription); the caller gates on the survivors' agreement.
+        """
 
         with ThreadPoolExecutor(
-            max_workers=MACRO_ESTIMATE_NUM_SAMPLES, thread_name_prefix="user-text-macro"
+            max_workers=MACRO_ESTIMATE_NUM_SAMPLES, thread_name_prefix=thread_prefix
         ) as pool:
-            futures = [pool.submit(_one) for _ in range(MACRO_ESTIMATE_NUM_SAMPLES)]
+            futures = [
+                pool.submit(self._one_estimate, prompt) for _ in range(MACRO_ESTIMATE_NUM_SAMPLES)
+            ]
             return tuple(future.result() for future in futures)
+
+    def _extract_comparable(self, page_text: str) -> tuple[NutritionFacts, str] | None:
+        """Cold-pass transcription of one comparable page → ``(per-100g facts, product name)``.
+
+        FTY-281 keeps a lone over-confident transcription out of the aggregate: the page is
+        transcribed over ``MACRO_ESTIMATE_NUM_SAMPLES`` passes and both halves of the
+        transcription must agree before it becomes a comparable candidate — the committed
+        **macro density** (the same gate the model-prior fallback uses) *and* the LLM-derived
+        **product identity** that feeds the downstream compatibility check
+        (:func:`cold_pass_identity`). ``None`` when too few passes canonicalise to plausible
+        per-100g facts, the macro densities disagree, or the passes disagree on the product's
+        food form / share no content term — so a page whose passes name conflicting forms
+        cannot enter on the strength of a single compatible pass.
+        """
+
+        samples = self._draw_estimates(self._extract_prompt(page_text), "user-text-extract")
+        pairs: list[tuple[NutritionFacts, str | None]] = []
+        for sample in samples:
+            facts = self._composition(sample)
+            if facts is not None and sample is not None and sample.facts is not None:
+                pairs.append((facts, sample.facts.product_name))
+        if len(pairs) < MACRO_ESTIMATE_NUM_SAMPLES:
+            return None
+        compositions = [facts for facts, _ in pairs]
+        if USER_TEXT_MACRO_ESTIMATE_POLICY.should_clarify(_macro_agreement(compositions)):
+            return None
+        product_name = cold_pass_identity([name for _, name in pairs])
+        if product_name is None:
+            return None
+        return _mean_composition(compositions), product_name
 
     @staticmethod
     def _composition(estimate: NamedFoodEstimate | None) -> NutritionFacts | None:
-        """Canonicalise one resolved model-prior estimate to plausible per-100g facts."""
+        """Canonicalise one resolved LLM estimate/transcription to plausible per-100g facts."""
 
         if estimate is None or estimate.disposition is not EstimateDisposition.RESOLVED:
             return None
@@ -435,26 +592,11 @@ class UserTextMacroEstimator:
         except (FetchPolicyError, FetchTransientError, FetchResponseError):
             return None
 
-    def _extract(self, page_text: str) -> NamedFoodEstimate | None:
-        prompt = _EXTRACT_PROMPT.format(
+    @staticmethod
+    def _extract_prompt(page_text: str) -> str:
+        return _EXTRACT_PROMPT.format(
             page_kind=_REFERENCE_PAGE_KIND, page_text=page_text[:MAX_PAGE_TEXT_CHARS]
         )
-        try:
-            estimate = self.provider.structured_completion(prompt, NamedFoodEstimate)
-        except (
-            StructuredOutputValidationError,
-            LLMResponseError,
-            LLMConfigurationError,
-            LLMTransientError,
-        ):
-            return None
-        if (
-            estimate.disposition is not EstimateDisposition.RESOLVED
-            or estimate.facts is None
-            or estimate.confidence < EXTRACT_CONFIDENCE_THRESHOLD
-        ):
-            return None
-        return estimate
 
 
 def _macro_agreement(compositions: list[NutritionFacts]) -> float:

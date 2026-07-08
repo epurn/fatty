@@ -884,6 +884,23 @@ The backend exposes four health-check endpoints, all returning structured JSON w
   `per_100g`, a nullable `field_provenance` map, and nullable `*_per_100g` fact-snapshot
   columns so an unknown user-stated macro is `NULL`, never a fake `0`). The USDA / OFF /
   official / reference / label paths and the serving math are unchanged.
+- **FTY-281 (comparable-reference aggregate fallback).** Implements step 2 of
+  **Estimating a missing field** (`evidence-retrieval.md`): when the exact reference
+  lookup misses for a user-stated calorie item, `UserTextMacroEstimator` now searches a
+  **brand-dropped** identity for several *comparable* public reference pages, keeps only
+  the compatible, plausible ones, drops outliers, and fills the missing macros from the
+  **median** of the survivors before falling back to the model-prior cold-pass — still
+  never re-asking a serving question for an otherwise usable item. The deterministic
+  aggregation lives in `app/estimator/comparable_reference.py`. Additive and
+  non-breaking: no schema, migration, or serving-math change; a `user_text` item stays
+  `user_text` and only its missing macros are filled (`field_provenance = estimated`,
+  the method + compatibility summary + **each** contributing `reference_source:<url>`
+  with its content hash and per-100g fact snapshot in `assumptions`; the run gains a
+  `comparable_reference` `source_refs` entry). The FTY-092 read-model gains one additive
+  optional field (`ItemSourceDTO.estimate_basis = comparable_reference`, derived at read
+  time) so a client can distinguish the rough aggregate from a plain `user_text` item.
+  Exact official/reference evidence still wins, and user-stated calories/macros are never
+  overwritten.
 - **FTY-278 (contract only; no code, no migration in this story).** Redefines the
   clarification boundary from whole-event to **item-scoped** for a mixed food log,
   routing it to the new `partially_resolved` status (`log-events.md` v6): costable

@@ -558,6 +558,7 @@ def test_entries_by_date_returns_events_with_today_item_read_model(
         "source_type": "trusted_nutrition_database",
         "label": "USDA",
         "ref": "usda_fdc:168880",
+        "estimate_basis": None,
     }
     assert food["is_edited"] is True
 

@@ -35,7 +35,13 @@ from urllib.parse import urlparse
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
-from app.enums import CandidateType, CorrectionSource, SourceType
+from app.enums import (
+    ESTIMATE_BASIS_ASSUMPTION_PREFIX,
+    CandidateType,
+    CorrectionSource,
+    MacroEstimateBasis,
+    SourceType,
+)
 from app.models.corrections import Correction
 from app.models.derived import DerivedExerciseItem, DerivedFoodItem
 from app.models.food_sources import EvidenceSource
@@ -120,7 +126,41 @@ def build_item_source(session: Session, item: DerivedFoodItem) -> ItemSourceDTO 
         source_type=source_type,
         label=_source_label(source_type, evidence.source_ref),
         ref=evidence.source_ref,
+        estimate_basis=_macro_estimate_basis(source_type, evidence.assumptions),
     )
+
+
+def _macro_estimate_basis(
+    source_type: SourceType, assumptions: list[str] | None
+) -> MacroEstimateBasis | None:
+    """Recover a ``user_text`` item's macro estimate basis from its own evidence row.
+
+    Derived **at read time** from the already-stored ``assumptions`` — the FTY-281
+    comparable-reference tier records an ``ESTIMATE_BASIS_ASSUMPTION_PREFIX`` marker
+    there, so the read-model can distinguish a rough comparable-reference macro estimate
+    from a plain user_text item with **no** new persisted column (the same derive-don't-
+    store philosophy as ``is_edited``). An absent or unrecognized marker yields ``None``
+    defensively rather than failing the read.
+
+    The derivation is **gated on ``source_type == user_text``** — the trusted signal for
+    the comparable-reference path. A comparable aggregate only ever backs a user-stated
+    calorie item, and a ``user_text`` row's ``assumptions`` are exclusively code-emitted
+    (``build_missing_macro_fill`` / ``_scale_missing``). The non-aggregate tiers
+    (``model_prior``/``official_source``/``reference_source``) persist **provider-generated**
+    free-form assumptions (the model is asked to "list the assumptions you made"), which
+    must never be read as this trusted basis even if their text mimics the marker.
+    """
+
+    if source_type is not SourceType.USER_TEXT:
+        return None
+    for assumption in assumptions or ():
+        if assumption.startswith(ESTIMATE_BASIS_ASSUMPTION_PREFIX):
+            raw = assumption[len(ESTIMATE_BASIS_ASSUMPTION_PREFIX) :].strip()
+            try:
+                return MacroEstimateBasis(raw)
+            except ValueError:
+                return None
+    return None
 
 
 def item_is_edited(session: Session, item_type: CandidateType, item_id: uuid.UUID) -> bool:
