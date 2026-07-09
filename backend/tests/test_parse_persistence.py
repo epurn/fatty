@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.db import create_session_factory
 from app.enums import DerivedItemStatus, EstimationJobStatus, LogEventStatus
 from app.estimator.parse import ParseStep
+from app.estimator.parse_policy import ParsePolicySettings
 from app.estimator.pipeline import Pipeline, StubCalculateStep
 from app.estimator.processing import process_estimation
 from app.estimator.self_consistency import SELF_CONSISTENCY_FIRST_WINDOW
@@ -43,7 +44,11 @@ def session(db_engine: Engine) -> Iterator[Session]:
         yield db_session
 
 
-def _pipeline(responses: list[dict[str, object] | LLMError]) -> Pipeline:
+def _pipeline(
+    responses: list[dict[str, object] | LLMError],
+    *,
+    policy: ParsePolicySettings | None = None,
+) -> Pipeline:
     """A parse pipeline whose provider returns the given reply for every sample.
 
     The parse step draws its replies through the FTY-158/159 self-consistency
@@ -53,7 +58,8 @@ def _pipeline(responses: list[dict[str, object] | LLMError]) -> Pipeline:
     """
 
     provider = FakeProvider(responses=list(responses) * SELF_CONSISTENCY_FIRST_WINDOW)
-    return Pipeline([ParseStep(provider), StubCalculateStep()])
+    step = ParseStep(provider) if policy is None else ParseStep(provider, policy=policy)
+    return Pipeline([step, StubCalculateStep()])
 
 
 def _clarify(text: str, options: list[str]) -> dict[str, object]:
@@ -248,11 +254,11 @@ def test_representative_gated_entries_persist_specific_question_options_and_read
     }
 
 
-def test_low_confidence_parsed_entry_persists_backend_clarification_options(
+def test_low_confidence_recognized_entry_persists_candidates_in_estimate_first(
     client: TestClient, session: Session
 ) -> None:
-    user_id, event_id, auth = _seed_event_with_auth(
-        client, "parse-low-confidence-clarify@example.com", "some rice"
+    user_id, event_id, _auth = _seed_event_with_auth(
+        client, "parse-low-confidence-estimate@example.com", "some rice"
     )
     pipeline = _pipeline(
         [
@@ -262,6 +268,34 @@ def test_low_confidence_parsed_entry_persists_backend_clarification_options(
                 "items": [{"type": "food", "name": "rice", "quantity_text": "some"}],
             }
         ]
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.job_status is EstimationJobStatus.SUCCEEDED
+    assert result.event_status is LogEventStatus.COMPLETED
+    foods = _food(session, event_id)
+    assert [food.name for food in foods] == ["rice"]
+    assert foods[0].amount is None
+    assert _exercise(session, event_id) == []
+    assert _questions(session, event_id) == []
+
+
+def test_balanced_low_confidence_parsed_entry_persists_backend_clarification_options(
+    client: TestClient, session: Session
+) -> None:
+    user_id, event_id, auth = _seed_event_with_auth(
+        client, "parse-low-confidence-balanced@example.com", "some rice"
+    )
+    pipeline = _pipeline(
+        [
+            {
+                "disposition": "parsed",
+                "confidence": 0.1,
+                "items": [{"type": "food", "name": "rice", "quantity_text": "some"}],
+            }
+        ],
+        policy=ParsePolicySettings(mode="balanced"),
     )
 
     result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
@@ -362,6 +396,37 @@ def test_schema_invalid_output_is_never_persisted(client: TestClient, session: S
     assert result.should_retry is False
     assert _food(session, event_id) == []
     assert _exercise(session, event_id) == []
+
+
+def test_schema_invalid_provider_output_is_not_copied_to_run_metadata(
+    client: TestClient, session: Session
+) -> None:
+    sensitive_output = "private snack phrase from provider"
+    user_id, event_id = _seed_event(client, "parse-invalid-redaction@example.com", "two eggs")
+    pipeline = _pipeline(
+        [
+            {
+                "disposition": "parsed",
+                "confidence": 0.9,
+                "items": [
+                    {
+                        "type": "food",
+                        "name": "eggs",
+                        "quantity_text": "two",
+                        "raw_output": sensitive_output,
+                    }
+                ],
+            }
+        ]
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.job_status is EstimationJobStatus.FAILED
+    run = session.scalars(select(EstimationRun).where(EstimationRun.log_event_id == event_id)).one()
+    metadata = f"{run.trace} {run.error} {run.assumptions} {run.source_refs}"
+    assert sensitive_output not in metadata
+    assert run.error == "schema_validation_failed"
 
 
 def test_adversarial_input_fails_closed_without_leaking_raw_text(

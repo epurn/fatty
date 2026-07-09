@@ -9,22 +9,22 @@ validated samples plus their consistency signal:
 - **parsed, calibrated-confident** → record food/exercise candidates onto the
   context; the worker persists them ``unresolved`` (no calories — FTY-043/044
   cost them).
-- **needs clarification** (no sample parsed, or the hybrid consistency score
-  falls below the calibrated operating point) → raise
+- **needs clarification** (empty/no recognizable identity, deterministic safety
+  gate, or stricter operator mode asks) → raise
   :class:`~app.estimator.pipeline.NeedsClarification`; the worker persists the
   questions and moves the event to ``needs_clarification``.
 - **unparseable / empty / garbage** (unanimously) → raise
   :class:`~app.estimator.pipeline.StepFailed`; the event fails closed with a
   sanitized reason and *no* candidates are persisted.
 
-The clarify decision is the FTY-159 **calibrated policy**
-(:data:`app.estimator.clarify_policy.NL_PARSE_CLARIFY_POLICY`): the winning
-signal from the bake-off over the labeled calibration sets (the FTY-158 hybrid
-of sampling agreement and verbalized confidence) compared against a
-data-derived operating point — not a self-reported confidence against a guessed
-constant. The deterministic gates are unchanged: the FTY-156 plausibility
-validator and the FTY-167 detail-signal override run exactly as before, on the
-routed sample's items.
+The default operator mode is FTY-298/FTY-300 **estimate_first**: provider-raised
+clarification and a low FTY-159 hybrid score are advisory when a validated reply
+contains recognizable candidate identity, so the routed items continue to
+deterministic safety gates and downstream rough resolution. ``balanced`` keeps
+the calibrated operating point without re-asking for already-stated details, and
+``strict`` keeps old-style abstention. The deterministic gates are unchanged:
+the FTY-156 plausibility validator and FTY-279 stated-nutrition stability check
+still run before any candidate is trusted.
 
 Trust boundary (security baseline + ``docs/security/security-baseline.md``): the
 model is an untrusted analyst. Every sample is schema-validated before anything
@@ -41,16 +41,16 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.enums import CandidateType
-from app.estimator.clarify_policy import NL_PARSE_CLARIFY_POLICY
 from app.estimator.detail_signals import (
     has_food_detail,
     has_stated_nutrition,
     parse_range_midpoint,
 )
 from app.estimator.exercise import has_exercise_detail
+from app.estimator.parse_policy import ParsePolicySettings
 from app.estimator.parse_prompt import build_parse_prompt
 from app.estimator.pipeline import (
     AnsweredClarification,
@@ -153,6 +153,7 @@ class ParseStep:
     """Parse a log event's text into schema-validated candidates via the provider."""
 
     provider: Provider
+    policy: ParsePolicySettings = field(default_factory=ParsePolicySettings)
     name: str = "parse"
 
     def run(self, context: EstimationContext) -> None:
@@ -187,7 +188,12 @@ class ParseStep:
         """
 
         try:
-            samples = collect_parse_samples(self.provider, raw_text, answered=answered)
+            samples = collect_parse_samples(
+                self.provider,
+                raw_text,
+                answered=answered,
+                max_repair_attempts=self.policy.max_repair_attempts,
+            )
         except StructuredOutputValidationError as exc:
             # Untrusted-analyst trust boundary: reject and fail closed. The label
             # is content-free — no raw output is surfaced.
@@ -209,20 +215,15 @@ class ParseStep:
 
         result = _representative(samples)
 
-        # The calibrated clarify gate (FTY-159): a sample set that never parsed
-        # is a direct fail-closed clarify decision (its agreement can be a
-        # perfect 1.0 *about asking*, which must not read as estimate
-        # confidence); otherwise the hybrid consistency score is compared
-        # against the data-derived operating point. FTY-167: either way, the
-        # decision is overridden when the routed reply's items all carry enough
-        # real-world detail (a count, a range, a distance, steps, or a game
-        # count) to estimate — a casual-but-detailed log should be estimated,
-        # not asked about. A genuinely vague reply (no items, or any item
-        # lacking an amount signal) still clarifies.
-        conservative = signal.all_non_parsed or NL_PARSE_CLARIFY_POLICY.should_clarify(
-            signal.hybrid
-        )
-        if conservative and not _reply_has_sufficient_detail(result.items):
+        # The calibrated gate still identifies conservative sample sets, but the
+        # active operator mode decides what that means. In default estimate_first
+        # mode, provider questions and low hybrid scores are advisory when the
+        # validated reply has recognizable candidates: the event continues to the
+        # deterministic safety gates and downstream rough resolution. Balanced keeps
+        # the calibrated threshold except for details the user already stated, while
+        # strict keeps old-style abstention.
+        conservative = signal.all_non_parsed or self.policy.should_clarify(signal.hybrid)
+        if conservative and not _policy_allows_estimate(self.policy.mode, result.items):
             context.clarification_questions = _clarification_questions(
                 samples,
                 fallback_items=result.items if not signal.all_non_parsed else (),
@@ -349,6 +350,44 @@ def _reply_has_sufficient_detail(items: list[ParsedCandidate]) -> bool:
     if not items:
         return False
     return all(_candidate_has_detail(item) for item in items)
+
+
+def _policy_allows_estimate(mode: str, items: list[ParsedCandidate]) -> bool:
+    """Whether the active policy lets a conservative sample set estimate."""
+
+    if mode == "estimate_first":
+        return _has_recognizable_candidates(items)
+    if mode == "balanced":
+        return _reply_has_sufficient_detail(items)
+    return False
+
+
+_GENERIC_IDENTITY_NAMES = frozenset(
+    {
+        "activity",
+        "drink",
+        "exercise",
+        "food",
+        "meal",
+        "sport",
+        "sports",
+        "something",
+        "stuff",
+        "thing",
+        "workout",
+    }
+)
+
+
+def _has_recognizable_candidates(items: Sequence[ParsedCandidate]) -> bool:
+    """Whether the validated reply contains a concrete food/exercise identity."""
+
+    return any(_is_recognizable_identity(item.name) for item in items)
+
+
+def _is_recognizable_identity(name: str) -> bool:
+    key = " ".join(name.casefold().split())
+    return bool(key) and key not in _GENERIC_IDENTITY_NAMES
 
 
 def _candidate_has_detail(item: ParsedCandidate) -> bool:

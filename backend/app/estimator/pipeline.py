@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from app.estimator.food_step import BarcodeResolver, FoodResolver
     from app.estimator.label_step import LabelInput
     from app.estimator.official_step import OfficialSourceResolveStep
+    from app.estimator.parse_policy import ParsePolicySettings
     from app.estimator.user_text_step import UserTextResolveStep
     from app.llm.base import Provider
 
@@ -433,6 +434,7 @@ class Pipeline:
 def default_pipeline(
     provider: Provider,
     *,
+    parse_policy: ParsePolicySettings | None = None,
     food_resolver: FoodResolver | None = None,
     barcode_resolver: BarcodeResolver | None = None,
     official_step: OfficialSourceResolveStep | None = None,
@@ -465,7 +467,10 @@ def default_pipeline(
     from app.estimator.food_step import FoodResolveStep  # noqa: PLC0415 — import cycle
     from app.estimator.parse import ParseStep  # noqa: PLC0415 — import cycle
 
-    steps: list[EstimationStep] = [ParseStep(provider), ExerciseCalculateStep()]
+    parse_step = (
+        ParseStep(provider) if parse_policy is None else ParseStep(provider, policy=parse_policy)
+    )
+    steps: list[EstimationStep] = [parse_step, ExerciseCalculateStep()]
     if food_resolver is not None:
         # The user-text step (FTY-280) runs *before* the food step: it is the rank-1
         # ``user_text`` tier, so a candidate the user stated a calorie total for is

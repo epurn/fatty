@@ -50,8 +50,9 @@ validated under the active policy. Clarification under `estimate_first` is reser
 missing recognizable identity, non-log/gibberish input, deterministic unsafe
 contradictions or implausibilities, an unavailable/disabled estimator path after its
 bounded recovery attempts, or an operator-selected stricter mode. This version changes
-the public contract only; the settings and estimator implementation are downstream
-FTY-299/FTY-300/FTY-301 follow-ups.
+the public contract only; FTY-299 added the typed settings, and FTY-300 implements
+the parse-side routing/recovery behavior. Food-resolution rough serving/source
+fallback remains the FTY-301 follow-up.
 
 6 (FTY-279, contract only): the parser may **extract explicit nutrition facts the
 user stated** in the entry text into new optional, bounded `ParsedCandidate` fields

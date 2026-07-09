@@ -51,6 +51,7 @@ from app.estimator.label_step import LabelInput
 from app.estimator.off import build_off_client
 from app.estimator.official_fetch import load_official_fetch_settings
 from app.estimator.official_step import OfficialSourceResolveStep
+from app.estimator.parse_policy import ParsePolicySettings
 from app.estimator.pipeline import (
     AnsweredClarification,
     CandidateDraft,
@@ -77,6 +78,7 @@ from app.models.identity import User, UserProfile
 from app.models.log_events import LogEvent
 from app.services.attachments import ingest_upload
 from app.services.log_events import transition_event
+from app.settings import load_settings
 
 #: Maximum number of estimation attempts before the job is marked ``failed``.
 #: Conservative default (one initial try plus two retries); tunable per the
@@ -234,6 +236,7 @@ def process_estimation(
     """
 
     if pipeline is None:
+        app_settings = load_settings()
         provider = build_provider(load_llm_settings())
         if label_upload is not None:
             # A label event has an image, not NL text: extract it deterministically
@@ -271,6 +274,7 @@ def process_estimation(
             )
             pipeline = default_pipeline(
                 provider,
+                parse_policy=ParsePolicySettings.from_app_settings(app_settings),
                 food_resolver=resolver,
                 barcode_resolver=barcode_resolver,
                 official_step=official_step,
