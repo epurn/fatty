@@ -26,7 +26,11 @@ from app.estimator.food_serving import NutritionFacts
 from app.estimator.food_step import BarcodeResolver, FoodResolver, FoodResolveStep
 from app.estimator.off import OFF_SOURCE, normalize_barcode
 from app.estimator.official_fetch import OfficialFetchSettings
-from app.estimator.official_step import QUANTITY_QUESTION, OfficialSourceResolveStep
+from app.estimator.official_step import (
+    QUANTITY_QUESTION,
+    UNKNOWN_FOOD_QUESTION,
+    OfficialSourceResolveStep,
+)
 from app.estimator.parse import ParseStep
 from app.estimator.pipeline import Pipeline
 from app.estimator.processing import process_estimation
@@ -44,7 +48,7 @@ from app.llm.providers.fake import FakeProvider
 from app.models.derived import ClarificationQuestion, DerivedFoodItem
 from app.models.estimation import EstimationRun
 from app.models.food_sources import EvidenceSource
-from app.settings import EstimatorClarifyMode
+from app.settings import DEFAULT_ESTIMATOR_MODEL_PRIOR_CONFIDENCE_FLOOR, EstimatorClarifyMode
 
 _BARCODE = "0123456789012"
 _TOPPABLES_REPRO = "3 toppables PB sandwiches (kraft)"
@@ -146,6 +150,7 @@ def _pipeline(
     food_source: FakeFoodSource | None = None,
     barcode_source: FakeBarcodeSource | None = None,
     clarify_mode: EstimatorClarifyMode = "estimate_first",
+    model_prior_confidence_floor: float = DEFAULT_ESTIMATOR_MODEL_PRIOR_CONFIDENCE_FLOOR,
 ) -> Pipeline:
     parse_provider = FakeProvider(
         responses=[{"disposition": "parsed", "confidence": 0.95, "items": parsed_items}]
@@ -163,6 +168,7 @@ def _pipeline(
         fetch_fn=_unused_fetch,
         reference_fetch_fn=_unused_fetch,
         clarify_mode=clarify_mode,
+        model_prior_confidence_floor=model_prior_confidence_floor,
     )
     return Pipeline(
         [
@@ -220,11 +226,12 @@ def _per_serving_estimate(
     *,
     calories: float = 180.0,
     serving_g: float = 42.0,
+    confidence: float = 0.72,
     assumptions: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "disposition": "resolved",
-        "confidence": 0.72,
+        "confidence": confidence,
         "facts": {
             "basis": "per_serving",
             "calories": calories,
@@ -511,6 +518,46 @@ def test_model_prior_as_logged_fallback_resolves_without_grams(
     evidence = _evidence(session, event_id)[0]
     assert evidence.basis == "as_logged"
     assert "as_logged_model_prior" in (evidence.assumptions or [])
+
+
+def test_low_confidence_model_prior_does_not_persist_completed_row(
+    client: TestClient, session: Session
+) -> None:
+    user_id, event_id = _seed_event(client, "fty301-low-prior@example.com", "some snack")
+    pipeline = _pipeline(
+        session,
+        parsed_items=[{"type": "food", "name": "snack", "quantity_text": "some"}],
+        estimates=[_per_serving_estimate(confidence=0.59)],
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.job_status is EstimationJobStatus.NEEDS_CLARIFICATION
+    assert result.event_status is LogEventStatus.NEEDS_CLARIFICATION
+    assert _foods(session, event_id) == []
+    assert _evidence(session, event_id) == []
+    assert [question.question_text for question in _questions(session, event_id)] == [
+        UNKNOWN_FOOD_QUESTION
+    ]
+
+
+def test_configured_model_prior_confidence_floor_is_enforced(
+    client: TestClient, session: Session
+) -> None:
+    user_id, event_id = _seed_event(client, "fty301-floor@example.com", "some snack")
+    pipeline = _pipeline(
+        session,
+        parsed_items=[{"type": "food", "name": "snack", "quantity_text": "some"}],
+        estimates=[_per_serving_estimate(confidence=0.72)],
+        model_prior_confidence_floor=0.73,
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.job_status is EstimationJobStatus.NEEDS_CLARIFICATION
+    assert result.event_status is LogEventStatus.NEEDS_CLARIFICATION
+    assert _foods(session, event_id) == []
+    assert _evidence(session, event_id) == []
 
 
 def test_strict_mode_can_still_ask_for_unresolvable_quantity(

@@ -98,7 +98,7 @@ from app.schemas.official_source import (
     FactBasis,
     NamedFoodEstimate,
 )
-from app.settings import EstimatorClarifyMode
+from app.settings import DEFAULT_ESTIMATOR_MODEL_PRIOR_CONFIDENCE_FLOOR, EstimatorClarifyMode
 
 __all__ = [
     "MODEL_PRIOR_SOURCE",
@@ -140,6 +140,7 @@ class OfficialSourceResolveStep:
     reference_fetch_settings: ReferenceFetchSettings
     fetch_fn: FetchOfficial = fetch_official_source
     reference_fetch_fn: FetchReference = fetch_searched_result
+    model_prior_confidence_floor: float = DEFAULT_ESTIMATOR_MODEL_PRIOR_CONFIDENCE_FLOOR
     clarify_mode: EstimatorClarifyMode = "estimate_first"
     name: str = "official_source_resolve"
 
@@ -320,7 +321,11 @@ class OfficialSourceResolveStep:
         _record_source_ref(context, MODEL_PRIOR_SOURCE)
         reason = "; ".join([*reasons, "estimated from model prior"])
         estimate = self._estimate_model_prior(candidate)
-        if estimate is None or estimate.disposition is not EstimateDisposition.RESOLVED:
+        if (
+            estimate is None
+            or estimate.disposition is not EstimateDisposition.RESOLVED
+            or estimate.confidence < self.model_prior_confidence_floor
+        ):
             context.clarification_questions = [ClarificationDraft(text=UNKNOWN_FOOD_QUESTION)]
             raise NeedsClarification("model_prior_unavailable")
 
