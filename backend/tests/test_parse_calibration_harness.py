@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -37,6 +38,12 @@ from tests.parse_calibration.harness import (
 )
 
 EXPECTED_TOTAL_EXAMPLES = 300
+ESTIMATE_FIRST_RECOVERY_FIXTURE_PATH = (
+    Path(__file__).parent
+    / "fixtures"
+    / "parse_calibration"
+    / "estimate_first_recovery_examples.jsonl"
+)
 REGRESSION_FLOORS = {
     "correct_decision_rate": 0.84,
     "answered_accuracy": 0.88,
@@ -134,6 +141,29 @@ def test_committed_fixture_validates_and_is_stratified_synthetic_only() -> None:
         for example in examples
         if example.difficulty in {"unambiguous", "inferable"}
     } == {"estimate"}
+    assert not any(_looks_like_pii(example.input) for example in examples)
+
+
+def test_estimate_first_recovery_fixture_covers_everyday_default_estimates() -> None:
+    examples = load_examples(ESTIMATE_FIRST_RECOVERY_FIXTURE_PATH)
+    by_input = {example.input: example for example in examples}
+
+    assert {
+        "milk",
+        "some crackers",
+        "crackers and hummus",
+        "3 toppables PB sandwiches (kraft)",
+        "6 crackers with about 1.5-2 tbsp dill pickle hummus",
+        "some crackers and a 30 min walk",
+        "Sobeys wrap 580 cals 35g protein",
+    } <= set(by_input)
+    assert {example.gold_decision for example in examples} == {"estimate"}
+    assert all(example.difficulty == "inferable" for example in examples)
+    assert all(
+        sample.disposition is ParseDisposition.PARSED
+        for example in examples
+        for sample in example.samples
+    )
     assert not any(_looks_like_pii(example.input) for example in examples)
 
 

@@ -23,6 +23,7 @@ import pytest
 
 from app.estimator.clarify_policy import NL_PARSE_CLARIFY_POLICY
 from app.estimator.parse import ParseStep
+from app.estimator.parse_policy import ParsePolicySettings
 from app.estimator.pipeline import (
     EstimationContext,
     NeedsClarification,
@@ -71,8 +72,14 @@ def _sampled(
     return [reply for _ in range(count)]
 
 
-def _run(provider: FakeProvider, context: EstimationContext) -> None:
-    ParseStep(provider).run(context)
+def _run(
+    provider: FakeProvider,
+    context: EstimationContext,
+    *,
+    policy: ParsePolicySettings | None = None,
+) -> None:
+    step = ParseStep(provider) if policy is None else ParseStep(provider, policy=policy)
+    step.run(context)
 
 
 def test_parsed_output_splits_food_and_exercise_candidates() -> None:
@@ -223,10 +230,10 @@ def test_unanimous_samples_rescue_a_timid_verbalized_confidence() -> None:
     assert context.clarification_questions == []
 
 
-def test_disagreeing_samples_clarify_despite_total_verbalized_confidence() -> None:
-    # Fail closed: a disposition flip inside the window caps the hybrid at
-    # 0.4 × verbalized < threshold, so even a model verbalizing certainty asks.
-    # The contested window also pays the full N samples.
+def test_balanced_disagreeing_samples_clarify_despite_total_verbalized_confidence() -> None:
+    # Balanced mode preserves the calibrated abstention threshold: a disposition
+    # flip inside the window caps the hybrid below threshold, so even a model
+    # verbalizing certainty asks. The contested window also pays the full N samples.
     confident = _parsed(
         [{"type": "food", "name": "curry", "quantity_text": "some"}], confidence=1.0
     )
@@ -240,7 +247,7 @@ def test_disagreeing_samples_clarify_despite_total_verbalized_confidence() -> No
     context = _context(raw_text="leftover curry")
 
     with pytest.raises(NeedsClarification) as exc:
-        _run(provider, context)
+        _run(provider, context, policy=ParsePolicySettings(mode="balanced"))
 
     assert exc.value.reason == "low_confidence_or_ambiguous"
     assert len(provider.prompts) == SELF_CONSISTENCY_NUM_SAMPLES
@@ -249,10 +256,10 @@ def test_disagreeing_samples_clarify_despite_total_verbalized_confidence() -> No
     assert _question_options(context) == [["1 cup", "2 cups", "3 cups"]]
 
 
-def test_mixed_unparseable_and_parsed_samples_clarify_not_fail() -> None:
-    # Only a *unanimously* unparseable sample set is terminal. A mixed set is
-    # genuine ambiguity: the disagreement drags the hybrid down and the event
-    # asks instead of silently failing or estimating.
+def test_balanced_mixed_unparseable_and_parsed_samples_clarify_not_fail() -> None:
+    # Only a *unanimously* unparseable sample set is terminal. In balanced mode, a
+    # mixed set is genuine ambiguity: disagreement drags the hybrid down and the
+    # event asks instead of silently failing or estimating.
     garbage = {"disposition": "unparseable", "confidence": 0.9, "reason": "not a log"}
     vague = {
         **_parsed([{"type": "food", "name": "rice", "quantity_text": "some"}], confidence=0.9),
@@ -262,7 +269,7 @@ def test_mixed_unparseable_and_parsed_samples_clarify_not_fail() -> None:
     context = _context(raw_text="rice???")
 
     with pytest.raises(NeedsClarification):
-        _run(provider, context)
+        _run(provider, context, policy=ParsePolicySettings(mode="balanced"))
 
     assert context.food_candidates == []
 
@@ -360,37 +367,6 @@ def test_explicit_count_with_unstated_portion_routes_to_parsed() -> None:
     assert pb.amount == 2
     assert pb.unit == "tbsp"
     assert context.clarification_questions == []
-
-
-def test_genuinely_indeterminate_still_routes_to_clarification() -> None:
-    # "crackers and peanut butter" with no count or portion word — genuinely
-    # indeterminate; the model should ask rather than guess wildly.
-    provider = FakeProvider(
-        responses=_sampled(
-            {
-                "disposition": "needs_clarification",
-                "confidence": 0.3,
-                "clarification_questions": [
-                    _clarify("How many crackers did you have?", ["4", "8", "12"]),
-                    _clarify(
-                        "How much peanut butter?",
-                        ["1 tsp", "1 tbsp", "2 tbsp"],
-                    ),
-                ],
-            }
-        )
-    )
-    context = _context(raw_text="crackers and peanut butter")
-
-    with pytest.raises(NeedsClarification):
-        _run(provider, context)
-
-    assert _question_texts(context) == [
-        "How many crackers did you have?",
-        "How much peanut butter?",
-    ]
-    assert _question_options(context) == [["4", "8", "12"], ["1 tsp", "1 tbsp", "2 tbsp"]]
-    assert context.food_candidates == []
 
 
 def test_estimate_first_framing_is_in_prompt() -> None:
@@ -887,30 +863,6 @@ def test_detailed_exercise_overrides_a_conservative_signal(
     assert context.clarification_questions == []
 
 
-def test_vague_food_without_detail_still_clarifies() -> None:
-    # "some crackers": identity but no count/range/measure — genuinely
-    # indeterminate, so a conservative signal still routes to clarification.
-    provider = FakeProvider(
-        responses=_sampled(
-            {
-                **_parsed(
-                    [{"type": "food", "name": "crackers", "quantity_text": "some"}],
-                    confidence=_low(),
-                ),
-                "clarification_questions": [
-                    _clarify("How many crackers did you have?", ["4", "8", "12"])
-                ],
-            }
-        )
-    )
-    context = _context(raw_text="some crackers")
-
-    with pytest.raises(NeedsClarification):
-        _run(provider, context)
-
-    assert context.food_candidates == []
-
-
 def test_vague_exercise_without_detail_still_clarifies() -> None:
     # "played sports": no duration/distance/steps/games signal — still clarifies.
     provider = FakeProvider(
@@ -932,33 +884,6 @@ def test_vague_exercise_without_detail_still_clarifies() -> None:
         _run(provider, context)
 
     assert context.exercise_candidates == []
-
-
-def test_mixed_detail_and_vague_items_clarifies() -> None:
-    # A detailed food alongside a vague one: the vague item's portion is genuinely
-    # unknown, so the whole event clarifies rather than half-guessing.
-    provider = FakeProvider(
-        responses=_sampled(
-            {
-                **_parsed(
-                    [
-                        {"type": "food", "name": "eggs", "quantity_text": "2", "amount": 2},
-                        {"type": "food", "name": "toast", "quantity_text": "some"},
-                    ],
-                    confidence=_low(),
-                ),
-                "clarification_questions": [
-                    _clarify("How much toast did you have?", ["1 slice", "2 slices", "3 slices"])
-                ],
-            }
-        )
-    )
-    context = _context(raw_text="2 eggs and some toast")
-
-    with pytest.raises(NeedsClarification):
-        _run(provider, context)
-
-    assert context.food_candidates == []
 
 
 def test_no_calories_invented_on_the_detailed_parse_path() -> None:

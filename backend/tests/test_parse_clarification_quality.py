@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from app.estimator.parse import DEFAULT_CLARIFICATION_QUESTION, ParseStep
+from app.estimator.parse_policy import ParsePolicySettings
 from app.estimator.pipeline import EstimationContext, NeedsClarification, StepFailed
 from app.estimator.self_consistency import SELF_CONSISTENCY_FIRST_WINDOW
 from app.llm.errors import LLMError
@@ -32,8 +33,14 @@ def _sampled(
     return [reply for _ in range(count)]
 
 
-def _run(provider: FakeProvider, context: EstimationContext) -> None:
-    ParseStep(provider).run(context)
+def _run(
+    provider: FakeProvider,
+    context: EstimationContext,
+    *,
+    policy: ParsePolicySettings | None = None,
+) -> None:
+    step = ParseStep(provider) if policy is None else ParseStep(provider, policy=policy)
+    step.run(context)
 
 
 def _question_texts(context: EstimationContext) -> list[str]:
@@ -135,13 +142,13 @@ def test_clarification_question_without_two_options_fails_closed() -> None:
     assert exc.value.reason == "clarification_quality_failed"
 
 
-def test_low_confidence_parsed_synthesizes_backend_clarification() -> None:
+def test_balanced_low_confidence_parsed_synthesizes_backend_clarification() -> None:
     reply = _parsed([{"type": "food", "name": "rice", "quantity_text": "some"}], confidence=0.1)
     provider = FakeProvider(responses=_sampled(reply))
     context = _context(raw_text="some rice")
 
     with pytest.raises(NeedsClarification) as exc:
-        _run(provider, context)
+        _run(provider, context, policy=ParsePolicySettings(mode="balanced"))
 
     assert exc.value.reason == "low_confidence_or_ambiguous"
     assert context.food_candidates == []

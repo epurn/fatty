@@ -43,6 +43,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from app.estimator.parse_prompt import build_parse_prompt
+from app.estimator.parse_recovery import recoverable_parse_result_schema
 from app.estimator.pipeline import AnsweredClarification
 from app.llm.base import Provider
 from app.schemas.parse import ParsedCandidate, ParseDisposition, ParseResult
@@ -159,6 +160,7 @@ def evaluate_self_consistency(
     answered: Sequence[AnsweredClarification] = (),
     num_samples: int = SELF_CONSISTENCY_NUM_SAMPLES,
     first_window: int = SELF_CONSISTENCY_FIRST_WINDOW,
+    max_repair_attempts: int = 0,
 ) -> SelfConsistencySignal:
     """Sample the parse ``num_samples`` times and compute the consistency signal.
 
@@ -171,7 +173,12 @@ def evaluate_self_consistency(
     """
 
     samples = collect_parse_samples(
-        provider, raw_text, answered=answered, num_samples=num_samples, first_window=first_window
+        provider,
+        raw_text,
+        answered=answered,
+        num_samples=num_samples,
+        first_window=first_window,
+        max_repair_attempts=max_repair_attempts,
     )
     return SelfConsistencySignal.from_samples(samples)
 
@@ -183,6 +190,7 @@ def collect_parse_samples(
     answered: Sequence[AnsweredClarification] = (),
     num_samples: int = SELF_CONSISTENCY_NUM_SAMPLES,
     first_window: int = SELF_CONSISTENCY_FIRST_WINDOW,
+    max_repair_attempts: int = 0,
 ) -> tuple[ParseResult, ...]:
     """Draw parse samples with parallel execution and unanimity early-stopping.
 
@@ -207,9 +215,14 @@ def collect_parse_samples(
 
     prompt = build_parse_prompt(raw_text, answered)
     window = min(first_window, num_samples)
-    samples = _sample_parallel(provider, prompt, window)
+    samples = _sample_parallel(provider, prompt, window, max_repair_attempts=max_repair_attempts)
     if len(samples) < num_samples and not _is_unanimous(samples):
-        samples += _sample_parallel(provider, prompt, num_samples - len(samples))
+        samples += _sample_parallel(
+            provider,
+            prompt,
+            num_samples - len(samples),
+            max_repair_attempts=max_repair_attempts,
+        )
     return samples
 
 
@@ -305,7 +318,9 @@ def _is_unanimous(samples: Sequence[ParseResult]) -> bool:
     return len(samples) >= _MIN_SAMPLES_FOR_UNANIMITY and agreement_score(samples) == 1.0
 
 
-def _sample_parallel(provider: Provider, prompt: str, count: int) -> tuple[ParseResult, ...]:
+def _sample_parallel(
+    provider: Provider, prompt: str, count: int, *, max_repair_attempts: int
+) -> tuple[ParseResult, ...]:
     """Draw ``count`` parse samples concurrently and return them in submit order.
 
     Uses one thread per sample: each sample is an independent blocking provider
@@ -315,12 +330,20 @@ def _sample_parallel(provider: Provider, prompt: str, count: int) -> tuple[Parse
     """
 
     if count == 1:
-        return (provider.structured_completion(prompt, ParseResult),)
+        return (_sample_once(provider, prompt, max_repair_attempts=max_repair_attempts),)
     with ThreadPoolExecutor(max_workers=count, thread_name_prefix="parse-sample") as pool:
         futures = [
-            pool.submit(provider.structured_completion, prompt, ParseResult) for _ in range(count)
+            pool.submit(_sample_once, provider, prompt, max_repair_attempts=max_repair_attempts)
+            for _ in range(count)
         ]
         return tuple(future.result() for future in futures)
+
+
+def _sample_once(provider: Provider, prompt: str, *, max_repair_attempts: int) -> ParseResult:
+    """Draw one structured sample through the public provider contract."""
+
+    schema = recoverable_parse_result_schema(max_repair_attempts)
+    return provider.structured_completion(prompt, schema)
 
 
 def _verbalized_mean(samples: Sequence[ParseResult]) -> float:
