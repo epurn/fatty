@@ -42,9 +42,8 @@ estimate-first** policy for natural-language text logs. The parse step consumes 
 mode semantics, advisory-provider-clarification rule, allowed last-resort
 clarification reasons, and rough-provenance requirements now owned by
 [estimator-policy.md](estimator-policy.md). This version changes the public contract
-only; FTY-299 added the typed settings, FTY-300 implements the parse-side
-routing/recovery behavior, and FTY-301 remains the food-resolution rough
-serving/source follow-up.
+only; the settings and estimator implementation are downstream FTY-299/FTY-300/FTY-301
+follow-ups.
 
 6 (FTY-279, contract only): the parser may **extract explicit nutrition facts the
 user stated** in the entry text into new optional, bounded `ParsedCandidate` fields
