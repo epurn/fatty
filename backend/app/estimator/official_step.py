@@ -520,7 +520,12 @@ class OfficialSourceResolveStep:
                 ),
             )
 
-        per_100g = reference.per_100g_facts or reference.facts
+        per_100g = reference.per_100g_facts
+        if per_100g is None:
+            # A per-serving count reference with no gram serving size has no per-100g
+            # basis, so measured grams cannot scale it; fall through to the next tier
+            # rather than scale raw per-serving facts as a density.
+            return None
         scaled = scale_facts(per_100g, grams)
         content_hash = _content_hash(hash_key, per_100g)
 

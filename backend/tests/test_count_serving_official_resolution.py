@@ -299,6 +299,61 @@ def test_model_prior_count_serving_per_100g_uses_count_relation_for_grams(
     assert "model_prior_count_serving:5 cracker" in evidence.assumptions
 
 
+def test_count_serving_without_gram_size_not_scaled_as_per_100g(
+    client: TestClient, session: Session
+) -> None:
+    """Per-serving count facts with no gram serving size must never gram-scale.
+
+    Regression: a count reference like ``230 kcal per 3 strips`` has no per-100g
+    basis. When the candidate has no structured amount but its ``quantity_text``
+    yields grams via the text scan, the gram fallback must fall through to the
+    next tier instead of scaling the raw per-serving facts as a density
+    (150 g × 230/100 = 345 kcal, mislabeled ``per_100g``).
+    """
+
+    user_id, event_id = _seed_event(
+        client, "official-count-text-grams@example.com", "150 g chicken strips"
+    )
+    pipeline = _pipeline(
+        session,
+        food_source=FakeFoodSource({}),
+        parsed_item={
+            "type": "food",
+            "name": "chicken strips",
+            "brand": "Compliments",
+            "quantity_text": "150 g",
+        },
+        search_provider=FakeSearchProvider(_success_result()),
+        fetcher=RecordingFetcher(),
+        reference_settings=ReferenceFetchSettings(enabled=False),
+        estimates=[
+            {"disposition": "resolved", "confidence": 0.9, "facts": _COUNT_STRIP_FACTS},
+            {
+                "disposition": "resolved",
+                "confidence": 0.7,
+                "facts": {
+                    "basis": "as_logged",
+                    "calories": 300.0,
+                    "protein_g": 20.0,
+                    "carbs_g": 15.0,
+                    "fat_g": 12.0,
+                },
+                "assumptions": ["as logged model prior"],
+            },
+        ],
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.event_status is LogEventStatus.COMPLETED
+    food = _foods(session, event_id)[0]
+    assert food.calories == 300.0
+    assert food.calories != pytest.approx(345.0)  # 150 g of per-serving facts as per-100g.
+    evidence = _evidence(session, event_id)
+    assert evidence.source_type == MODEL_PRIOR_SOURCE_TYPE
+    assert evidence.basis == "as_logged"
+
+
 def test_incompatible_count_serving_falls_through_instead_of_scaling(
     client: TestClient, session: Session
 ) -> None:
