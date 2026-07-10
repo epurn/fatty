@@ -39,6 +39,10 @@ _PICKLES_ROW = "Pickles, cucumber, dill or kosher dill"
         ("potato", "Potato flour"),
         ("banana", "Snacks, banana chips"),
         ("banana", "Babyfood, fruit, bananas with tapioca, strained"),
+        # Stating one form opts into that form only, never a different one:
+        # chips are not the dehydrated/powder form, condensed is not dry.
+        ("banana chips", "Bananas, dehydrated, or banana powder"),
+        ("condensed milk", "Milk, dry, whole, with added vitamin D"),
         # A stated added ingredient the row does not carry: plain toast facts
         # materially undercount buttered toast.
         ("buttered toast", "Bread, white, commercially prepared, toasted"),
@@ -56,10 +60,13 @@ def test_incompatible_descriptions_are_rejected(query: str, description: str) ->
         ("dill pickles", _PICKLES_ROW),
         ("banana", "Bananas, ripe and slightly ripe, raw"),
         ("hummus", "Hummus, commercial"),
-        # A query stating the processed form opts into it, including synonymous
-        # form tokens in the same description.
+        # A query stating the processed form opts into it, including the same
+        # form's synonym-family tokens in one description ("dehydrated, or
+        # banana powder" names one form two ways).
         ("banana powder", "Bananas, dehydrated, or banana powder"),
+        ("dried banana", "Bananas, dehydrated, or banana powder"),
         ("dried apricots", "Apricots, dried, sulfured, uncooked"),
+        ("dry milk", "Milk, dry, whole, with added vitamin D"),
         # Participle/plural variants still name the head noun.
         ("wheat toast", "Bread, whole-wheat, commercially prepared, toasted"),
         ("scrambled eggs", "Egg, whole, cooked, scrambled"),

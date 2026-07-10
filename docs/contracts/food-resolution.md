@@ -49,8 +49,12 @@ only the flavor tokens is rejected, while plain `dill pickle` still resolves to
 pickles); (b) carry no **density-changing form** the query did not state
 (dehydrated / dried / dry / powder(ed) / flour / concentrate(d) / evaporated /
 condensed / chips / crisps / babyfood — so `banana` never costs as banana
-powder; the `dry roasted` idiom stays eligible, and a query stating such a form
-opts into the processed rows); and (c) name any **added ingredient** the query
+powder; the `dry roasted` idiom stays eligible; a query stating a form opts
+into that form only, directly or via its bounded synonym family —
+dehydrated/dried/dry/powder(ed) is one family, chips/crisps another, since USDA
+names one form several ways in a row (`Bananas, dehydrated, or banana powder`) —
+never into a *different* form, so `condensed milk` still rejects a `Milk, dry`
+row); and (c) name any **added ingredient** the query
 states (`buttered` toast is not plain toast). Surviving rows are ordered by
 fewest unstated *demoted* forms (canned / pickled / sweetened / smoked / cured /
 frozen / juice / syrup), then query-token coverage (`Egg, whole, cooked,
