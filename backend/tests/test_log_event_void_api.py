@@ -11,9 +11,9 @@ fails closed, idempotency, set-once first-write-wins under a concurrent DELETE,
 the ``404`` fail-closed cases (unknown / cross-user), no hard deletion,
 retained-and-excluded derived rows written by a late estimation after the void,
 the void-aware keyed create-replay (fails closed ``404``, key stays consumed),
-the fail-closed correction-edit / re-match boundary prechecks on a voided
-parent, and the exact-contribution drop in daily totals — exercised against
-SQLite and (opt-in) Postgres.
+the fail-closed correction-edit / re-match / label-proposal boundary guards on
+a voided parent, and the exact-contribution drop in daily totals — exercised
+against SQLite and (opt-in) Postgres.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from sqlalchemy.engine import Engine
 
 from app.db import create_session_factory
 from app.enums import CandidateType, DerivedItemStatus, LogEventStatus, SourceType
+from app.estimator.label_step import USER_LABEL_SOURCE_TYPE
 from app.models.corrections import Correction
 from app.models.derived import ClarificationQuestion, DerivedExerciseItem, DerivedFoodItem
 from app.models.food_sources import EvidenceSource
@@ -145,6 +146,32 @@ def _seed_question(db_engine: Engine, user_id: str, event_id: uuid.UUID) -> uuid
         session.add(question)
         session.commit()
         return question.id
+
+
+def _seed_label_evidence(
+    db_engine: Engine, user_id: str, event_id: uuid.UUID, item_id: uuid.UUID
+) -> None:
+    """Mark ``item_id`` as label-derived so the label-proposal endpoints see it."""
+
+    factory = create_session_factory(db_engine)
+    with factory() as session:
+        session.add(
+            EvidenceSource(
+                user_id=uuid.UUID(user_id),
+                log_event_id=event_id,
+                derived_food_item_id=item_id,
+                product_id=None,
+                source_type=USER_LABEL_SOURCE_TYPE,
+                source_ref=f"{USER_LABEL_SOURCE_TYPE}:deadbeef",
+                content_hash="deadbeef",
+                fetched_at=datetime(2026, 6, 20, 12, 0, tzinfo=UTC),
+                calories_per_100g=500.0,
+                protein_per_100g=25.0,
+                carbs_per_100g=50.0,
+                fat_per_100g=20.0,
+            )
+        )
+        session.commit()
 
 
 def _daily_intake(client: TestClient, user_id: str, auth: str, day: str) -> dict[str, Any]:
@@ -663,6 +690,45 @@ def test_void_makes_re_match_endpoints_fail_closed(client: TestClient, db_engine
     )
     assert candidates.status_code == 404
     assert re_resolve.status_code == 404
+
+
+def test_void_makes_label_proposal_read_and_confirm_fail_closed(
+    client: TestClient, db_engine: Engine
+) -> None:
+    """Label-proposal read and confirm on a voided event are 404 and mutate nothing.
+
+    Both endpoints resolve ownership/existence through the void-aware
+    single-event read (`label-upload.md`), so a voided event is `404` — not
+    ``proposal: null`` — and the refused confirm leaves the retained row
+    ``proposed`` (uncounted).
+    """
+
+    user_id, auth = _register(client, "void-label@example.com")
+    event_id = _seed_event(db_engine, user_id, created_at=datetime(2026, 6, 20, 12, 0, tzinfo=UTC))
+    item_id = _seed_food_item(db_engine, user_id, event_id, status=DerivedItemStatus.PROPOSED)
+    _seed_label_evidence(db_engine, user_id, event_id, item_id)
+    proposal_url = f"/api/users/{user_id}/log-events/{event_id}/label-proposal"
+
+    # The proposal is readable before the void (non-voided behaviour unchanged).
+    before = client.get(proposal_url, headers={"Authorization": auth})
+    assert before.status_code == 200
+    assert before.json()["proposal"] is not None
+
+    client.delete(
+        f"/api/users/{user_id}/log-events/{event_id}", headers={"Authorization": auth}
+    ).raise_for_status()
+
+    read = client.get(proposal_url, headers={"Authorization": auth})
+    confirm = client.post(f"{proposal_url}/confirm", headers={"Authorization": auth}, json={})
+    assert read.status_code == 404
+    assert confirm.status_code == 404
+
+    # Refused means refused: the retained row is still an uncounted proposal.
+    factory = create_session_factory(db_engine)
+    with factory() as session:
+        item = session.get(DerivedFoodItem, item_id)
+        assert item is not None
+        assert DerivedItemStatus(item.status) is DerivedItemStatus.PROPOSED
 
 
 def test_void_round_trips_on_postgres(pg_engine: Engine) -> None:

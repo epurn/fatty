@@ -414,9 +414,11 @@ mistaken or unwanted logged entry. It is a **soft void**, not a hard delete:
 
 - **Marker, not deletion.** The event's `voided_at` is set once (a terminal
   status; there is no un-void). The event row, its derived food/exercise items,
-  its corrections, and its evidence rows are all **retained** — nothing is
-  hard-deleted — so the append-only audit/provenance stance holds
-  (`corrections.md`).
+  its corrections, its evidence rows, and any saved label-image attachment
+  (`log-attachments.md`) are all **retained** — nothing is hard-deleted, and no
+  `ON DELETE CASCADE` fires (a void deletes no row) — so the append-only
+  audit/provenance stance holds (`corrections.md`,
+  `docs/security/data-retention.md`).
 - **Full read-model exclusion.** A voided event disappears from the day: it is
   omitted from list-today, the day-listing (`by-date`) read, and the single
   get-by-id (which returns `404`); its derived items are omitted from the
@@ -438,7 +440,11 @@ mistaken or unwanted logged entry. It is a **soft void**, not a hard delete:
     item whose parent event is voided;
   - the **re-match candidate-list and re-resolve**
     (`POST .../derived-items/food/{item_id}/source-candidates` and
-    `.../re-resolve`, `corrections.md`) on an item whose parent event is voided.
+    `.../re-resolve`, `corrections.md`) on an item whose parent event is voided;
+  - the **label-proposal read and confirm**
+    (`GET`/`POST .../log-events/{event_id}/label-proposal[/confirm]`,
+    `label-upload.md`) on a voided event — the refused confirm mutates nothing,
+    so the retained `proposed` row stays uncounted.
 
   These are backend-core route/service boundary prechecks (each loads the
   target's parent event and rejects when `voided_at` is set); the estimator
