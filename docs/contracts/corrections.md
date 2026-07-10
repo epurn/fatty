@@ -36,6 +36,13 @@ backend-core / contracts / security-privacy lane:
 
 ## Version
 
+3 (FTY-306, contract only). Applying an **exact evidence upgrade** (`Make it
+exact` — `evidence-retrieval.md`, **Exact Evidence Upgrade — FTY-306**) is
+audited exactly like a Change-match re-resolve: it appends one immutable
+**`re_match`** correction row, **not** a `user_edit`, and the applied item reads
+`is_edited = false` until a later manual override. No new `CorrectionSource`
+value, no schema change. See the FTY-306 note under **`is_edited` derivation**.
+
 2 (FTY-092). v1 was FTY-051. FTY-092 adds the `amount_adjust` `CorrectionSource`
 value, redefines the quantity-edit rescale as a **provenance-preserving** adjustment
 (tagged `amount_adjust`, evidence untouched, item stays un-edited), and defines the
@@ -203,6 +210,27 @@ Today/daily read-model — see `daily-summary.md`.
 > override — even when it had been edited before. Do not "fix" this back to `user_edit`;
 > a later genuine edit (a `user_edit` after the re-match) makes it `true` again.
 
+> **Exact evidence upgrade applies are `re_match`, not `user_edit` (FTY-306).** The
+> `Make it exact` lever (`evidence-retrieval.md` → **Exact Evidence Upgrade —
+> FTY-306**) replaces a low-trust/incomplete food item's source with user-supplied
+> **product evidence** — an exact barcode/label match, or an honestly-labelled
+> lower-trust fallback when exact evidence fails. Applying a proposal is a
+> **source replacement**, the same write semantics as Change match: it rewrites the
+> item's `evidence_sources` provenance to the applied source, **re-snapshots**
+> `*_estimated` to the newly computed values, writes **no** `user_edit` row, and
+> appends **one immutable `re_match` correction row** (keyed on `calories`) that
+> supersedes any prior `user_edit`. An applied item therefore reads
+> `is_edited == false` — its honesty comes from the new source (or the fallback's
+> visible rough provenance) — until a **later** manual value override makes it
+> `true` again. The two levers differ only in where the new source comes from:
+> Change match fixes a wrong source by search; Make it exact asks the user for
+> product evidence and applies the resulting source explicitly. An optional amount
+> adjustment made from the apply preview is folded into the same re-resolution
+> (applied before the recompute), not recorded as a separate
+> `amount_adjust`/`user_edit` correction. The apply operation never accepts
+> client-supplied nutrition facts (`food-resolution.md`, **Exact Evidence Upgrade
+> Routing — FTY-306**).
+
 ## Validation
 
 - **Known field.** A field outside the editable set for the item type →
@@ -234,6 +262,22 @@ Object-level, on every edit, **failing closed**:
   (`CorrectionImmutableError`), proven by a tamper test. Account/user deletion
   still removes a user's rows via the database `ON DELETE CASCADE` (a retention
   requirement, intentionally outside the application-edit guard).
+- **Log-event void is a status, not a deletion (FTY-321).** A user removing a
+  mislogged entry (`DELETE .../log-events/{id}`, `log-events.md`) is a **soft
+  void**: it sets a `voided_at` marker on the `log_events` row and **retains**
+  the event, its derived items, corrections, and evidence — no application-code
+  row deletion occurs, so this append-only / immutable stance is fully
+  preserved. A voided entry's rows simply stop appearing in read models and
+  totals; the correction history hanging off a voided event stays intact and
+  untouched (the ORM `UPDATE`/`DELETE` guards still hold). Only true account/user
+  deletion removes correction rows, via the database `ON DELETE CASCADE` as
+  above. The retained rows are also **not mutable after the void**: the
+  correction edit, the re-match candidate-list / re-resolve endpoints, and the
+  FTY-306 exact-upgrade proposal/apply endpoints each
+  fail closed (`404`) when the target item's parent event is voided — a
+  backend-core boundary precheck, since these endpoints address their row
+  directly and bypass the read-time exclusion join (`log-events.md`,
+  soft-void). Non-voided behaviour is unchanged.
 - **Retention.** `corrections` and the snapshot columns are user-owned derived data
   retained until the owning derived item, log event, user, or account is deleted
   (`ON DELETE CASCADE`), per `docs/security/data-retention.md`.
@@ -246,6 +290,7 @@ Object-level, on every edit, **failing closed**:
 | Condition | Result |
 | --- | --- |
 | Cross-user or unknown item | `404` (no existence disclosure, no mutation). |
+| Item whose parent log event is voided (FTY-321) | `404` (fail closed, no mutation; same shape as unknown — no void oracle). |
 | Missing/invalid credentials | `401`. |
 | Unknown field for the item type | `422` `unknown_field`. |
 | Negative / non-finite value | `422` (request-boundary validation). |
@@ -292,3 +337,10 @@ value override, and the source-descriptor mapping).
   edited. The `source` descriptor and `is_edited` flag are **derived reads** (from
   `evidence_sources` and the `corrections` history) with no new persisted column or
   read table.
+- **FTY-306 (contract only; no migration, no new enum value).** The exact
+  evidence upgrade apply (`Make it exact`) reuses the existing **`re_match`**
+  `CorrectionSource` and the FTY-093 audit semantics unchanged — one immutable
+  `re_match` row per apply, no `user_edit` row, `is_edited` derives `false` until
+  a later manual override. The `is_edited` derivation rule above is untouched.
+  Backend implementation is **FTY-307–FTY-309**; mobile consumption is
+  **FTY-310–FTY-313**.
