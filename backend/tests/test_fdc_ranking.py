@@ -43,6 +43,7 @@ _PICKLES_ROW = "Pickles, cucumber, dill or kosher dill"
         ("potato", "Potato flour"),
         ("banana", "Snacks, banana chips"),
         ("banana", "Babyfood, fruit, bananas with tapioca, strained"),
+        ("banana", "Babyfoods, fruit, bananas with tapioca, strained"),
         # Stating one form opts into that form only, never a different one:
         # chips are not the dehydrated/powder form, condensed is not dry.
         ("banana chips", "Bananas, dehydrated, or banana powder"),
@@ -161,6 +162,7 @@ def _fdc_food(
 _BANANA_RESPONSE: dict[str, Any] = {
     "foods": [
         _fdc_food(9041, "Bananas, dehydrated, or banana powder", 346.0, carbs=88.3),
+        _fdc_food(3110, "Babyfoods, fruit, bananas with tapioca, strained", 91.0, carbs=21.3),
         _fdc_food(9040, "Bananas, raw", 89.0, carbs=22.8),
     ]
 }
@@ -175,6 +177,26 @@ def _client(reply: dict[str, Any]) -> FdcClient:
 
 def test_lookup_skips_dehydrated_banana_for_a_plain_banana_query() -> None:
     facts = _client(_BANANA_RESPONSE).lookup("banana")
+
+    assert facts is not None
+    assert facts.source_ref == "usda_fdc:9040"
+    assert facts.facts.calories == pytest.approx(89.0)
+
+
+def test_lookup_skips_plural_babyfoods_banana_for_a_plain_banana_query() -> None:
+    response = {
+        "foods": [
+            _fdc_food(
+                3110,
+                "Babyfoods, fruit, bananas with tapioca, strained",
+                91.0,
+                carbs=21.3,
+            ),
+            _fdc_food(9040, "Bananas, raw", 89.0, carbs=22.8),
+        ]
+    }
+
+    facts = _client(response).lookup("banana")
 
     assert facts is not None
     assert facts.source_ref == "usda_fdc:9040"
@@ -267,4 +289,4 @@ def test_list_matches_still_surfaces_every_energy_bearing_alternative() -> None:
 
     matches = _client(_BANANA_RESPONSE).list_matches("banana")
 
-    assert [m.source_ref for m in matches] == ["usda_fdc:9041", "usda_fdc:9040"]
+    assert [m.source_ref for m in matches] == ["usda_fdc:9041", "usda_fdc:3110", "usda_fdc:9040"]

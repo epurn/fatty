@@ -153,6 +153,15 @@ def _contains_token(tokens: tuple[str, ...], wanted: str) -> bool:
     return any(_tokens_match(token, wanted) for token in tokens)
 
 
+def _matched_token(token: str, wanted_tokens: frozenset[str]) -> str | None:
+    """Return the canonical wanted token matched by ``token`` variants, if any."""
+
+    return next(
+        (wanted for wanted in sorted(wanted_tokens) if _tokens_match(token, wanted)),
+        None,
+    )
+
+
 def _query_states_form(query_tokens: tuple[str, ...], form_token: str) -> bool:
     """Whether the query states the density-changing form ``form_token``.
 
@@ -215,7 +224,8 @@ def is_fdc_description_compatible(query_key: str, description: str) -> bool:
     if frozenset(description_tokens) & _DRY_ROASTED_MARKERS:
         rejected = rejected - {"dry"}
     for token in frozenset(description_tokens):
-        if token in rejected and not _query_states_form(form_query_tokens, token):
+        form_token = _matched_token(token, rejected)
+        if form_token is not None and not _query_states_form(form_query_tokens, form_token):
             return False
 
     return all(

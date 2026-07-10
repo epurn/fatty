@@ -84,6 +84,9 @@ _RAW_BANANA = _fdc_food(9040, "Bananas, raw", 89.0, 1.09, 22.84, 0.33)
 _DEHYDRATED_BANANA = _fdc_food(
     9041, "Bananas, dehydrated, or banana powder", 346.0, 3.89, 88.28, 1.81
 )
+_BABYFOODS_BANANA = _fdc_food(
+    3110, "Babyfoods, fruit, bananas with tapioca, strained", 91.0, 1.0, 21.34, 0.2
+)
 _RAW_EGG = _fdc_food(1123, "Egg, whole, raw, fresh", 143.0, 12.56, 0.72, 9.51)
 _SCRAMBLED_EGG = _fdc_food(1132, "Egg, whole, cooked, scrambled", 149.0, 9.99, 1.61, 10.98)
 _WHEAT_TOAST = _fdc_food(
@@ -103,7 +106,7 @@ _BREWED_COFFEE = _fdc_food(
 #: dehydrated/powder row FIRST — the observed real-world relevance order the
 #: FTY-254 ranking must overcome. Queries absent here return no results.
 _FDC_RESPONSES: dict[str, dict[str, Any]] = {
-    "banana": {"foods": [_DEHYDRATED_BANANA, _RAW_BANANA]},
+    "banana": {"foods": [_DEHYDRATED_BANANA, _BABYFOODS_BANANA, _RAW_BANANA]},
     "eggs": {"foods": [_RAW_EGG]},
     "scrambled eggs": {"foods": [_RAW_EGG, _SCRAMBLED_EGG]},
     "wheat toast": {"foods": [_WHEAT_TOAST]},
