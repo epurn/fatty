@@ -255,7 +255,7 @@ def searched_reference_per_100g(  # noqa: PLR0913 - shared provider/fetch/extrac
                     hash_key=search_candidate.url,
                     allow_count_serving=allow_count_serving,
                     accept_result=accept_result,
-                    extra_assumptions=(SNIPPET_ASSUMPTION,),
+                    assumptions_override=(SNIPPET_ASSUMPTION,),
                 )
         if found is not None:
             return found
@@ -272,7 +272,7 @@ def _extract_accepted(
     hash_key: str,
     allow_count_serving: bool,
     accept_result: AcceptSearchedReference | None,
-    extra_assumptions: tuple[str, ...] = (),
+    assumptions_override: tuple[str, ...] | None = None,
 ) -> SearchedReferenceFacts | None:
     """Extract + validate + accept one untrusted text surface; ``None`` if unusable."""
 
@@ -284,11 +284,19 @@ def _extract_accepted(
     )
     if estimate is None or estimate.facts is None:
         return None
+    # ``assumptions_override`` replaces the provider-stated assumptions wholesale.
+    # The snippet fallback passes the fixed ``SNIPPET_ASSUMPTION`` label here: the
+    # extraction provider controls ``estimate.assumptions`` and could echo raw
+    # snippet text into them, so a snippet-derived result persists only the
+    # content-free label — never provider-controlled assumption strings.
+    assumptions = (
+        tuple(estimate.assumptions) if assumptions_override is None else assumptions_override
+    )
     found = _searched_reference_from_facts(
         estimate.facts,
         source_ref=source_ref,
         hash_key=hash_key,
-        assumptions=tuple(estimate.assumptions) + extra_assumptions,
+        assumptions=assumptions,
         allow_count_serving=allow_count_serving,
     )
     if found is None:

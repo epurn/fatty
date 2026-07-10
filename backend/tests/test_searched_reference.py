@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from app.estimator.hardened_fetch import FetchResponseError
 from app.estimator.pipeline import CandidateDraft, EstimationContext
 from app.estimator.reference_fetch import ReferenceFetchSettings
 from app.estimator.search import (
@@ -257,10 +258,13 @@ def test_snippet_fallback_used_when_fetch_fails() -> None:
     )
 
     assert found is not None
-    # Provenance stays the search-result URL, plus the snippet-derived label.
+    # Provenance stays the search-result URL. The assumptions carry ONLY the fixed
+    # snippet-derived label: the provider-stated assumptions are dropped for a
+    # snippet extraction, so provider output echoing raw snippet text can never
+    # ride into evidence/run assumptions.
     assert found.source_ref == f"{REFERENCE_SOURCE_TYPE}:{_SNIPPET_URL}"
     assert found.hash_key == _SNIPPET_URL
-    assert found.assumptions == ("source states one wrap serving", SNIPPET_ASSUMPTION)
+    assert found.assumptions == (SNIPPET_ASSUMPTION,)
     assert found.facts.calories == pytest.approx(200.0)
     # The one extraction prompt carried the bounded title+snippet framed as
     # untrusted search-result text, not the (unfetchable) page.
@@ -270,6 +274,29 @@ def test_snippet_fallback_used_when_fetch_fails() -> None:
     assert "Toppables crackers" in prompt
     assert _SNIPPET in prompt
     assert "UNTRUSTED" in prompt
+
+
+def test_snippet_extraction_drops_provider_stated_assumptions() -> None:
+    # Fail-closed retention (FTY-314): the extraction provider controls the
+    # ``assumptions`` it returns and could echo raw snippet text into them. A
+    # snippet-derived result persists only the fixed content-free label.
+    search = _search(_snippet_candidate())
+    fetcher = RecordingFetcher({})
+    echoing = _estimate()
+    echoing["assumptions"] = [f"transcribed from snippet: {_SNIPPET}"]
+    provider = FakeProvider(responses=[echoing])
+
+    found = searched_reference_per_100g(
+        provider=provider,
+        search_provider=search,
+        fetch=fetcher,
+        query="toppables crackers nutrition facts",
+        page_kind=_REFERENCE_PAGE_KIND,
+        source_type=REFERENCE_SOURCE_TYPE,
+    )
+
+    assert found is not None
+    assert found.assumptions == (SNIPPET_ASSUMPTION,)
 
 
 def test_snippet_fallback_used_when_page_extraction_is_unresolved() -> None:
@@ -377,5 +404,102 @@ def test_snippet_text_is_bounded_before_it_reaches_the_prompt() -> None:
         source_type=REFERENCE_SOURCE_TYPE,
     )
 
+    # The snippet reached the one extraction prompt, but truncated: the composed
+    # title+snippet text never exceeds the bound.
     assert len(provider.prompts) == 1
+    assert "xxx" in provider.prompts[0]
     assert "x" * (MAX_SNIPPET_TEXT_CHARS + 1) not in provider.prompts[0]
+
+
+# --- Snippet fallback in the user_text missing-macro path (FTY-314) ---------------
+
+
+class _FailingReferenceFetcher:
+    """Reference fetch seam whose every fetch fails like a 403 page."""
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def __call__(self, url: str, settings: ReferenceFetchSettings) -> str:
+        self.fetched.append(url)
+        raise FetchResponseError("fetch returned HTTP 403", status_code=403)
+
+
+def _snippet_extraction(product_name: str | None) -> dict[str, Any]:
+    return {
+        "disposition": "resolved",
+        "confidence": 0.9,
+        "facts": {
+            "basis": "per_100g",
+            "product_name": product_name,
+            "calories": 200.0,
+            "protein_g": 10.0,
+            "carbs_g": 30.0,
+            "fat_g": 5.0,
+        },
+    }
+
+
+def _macro_context_and_candidate() -> tuple[EstimationContext, CandidateDraft]:
+    context = EstimationContext(log_event_id=uuid.uuid4(), user_id=uuid.uuid4(), raw_text="")
+    candidate = CandidateDraft(
+        name="toppables crackers", quantity_text="a few", stated_calories=360.0
+    )
+    return context, candidate
+
+
+def test_user_text_snippet_fill_carries_label_when_product_is_compatible() -> None:
+    # The macro fill may use a snippet-derived reference only when its transcribed
+    # product identity names a comparable of the item; the persisted assumptions
+    # then carry the content-free snippet label alongside the scaling reason.
+    search = _search(_snippet_candidate())
+    fetcher = _FailingReferenceFetcher()
+    provider = FakeProvider(responses=[_snippet_extraction("Toppables crackers")])
+    estimator = UserTextMacroEstimator(
+        provider=provider,
+        search_provider=search,
+        reference_fetch_settings=ReferenceFetchSettings(),
+        reference_fetch_fn=fetcher,
+    )
+    context, candidate = _macro_context_and_candidate()
+
+    estimated = estimator.estimate(context, candidate, 360.0, ("protein_g", "carbs_g", "fat_g"))
+
+    assert estimated.source_ref == f"{REFERENCE_SOURCE_TYPE}:{_SNIPPET_URL}"
+    assert estimated.values == {"protein_g": 18.0, "carbs_g": 54.0, "fat_g": 9.0}
+    assert SNIPPET_ASSUMPTION in estimated.assumptions
+    assert fetcher.fetched == [_SNIPPET_URL]
+
+
+@pytest.mark.parametrize("product_name", ["chocolate fudge cake", None])
+def test_user_text_snippet_fill_rejects_incompatible_or_unnamed_product(
+    product_name: str | None,
+) -> None:
+    # Fail closed: this single-source path commits the first accepted result, so a
+    # snippet-derived extraction naming a different product — or none at all — never
+    # fills missing macros. The estimator falls through, and with the comparable and
+    # model-prior tiers yielding nothing the macros stay honestly unknown.
+    search = _search(_snippet_candidate())
+    fetcher = _FailingReferenceFetcher()
+    provider = FakeProvider(
+        responses=[
+            _snippet_extraction(product_name),
+            # Model-prior cold passes: all unresolved → no agreement, no fill.
+            {"disposition": "unresolved", "confidence": 0.1},
+            {"disposition": "unresolved", "confidence": 0.1},
+            {"disposition": "unresolved", "confidence": 0.1},
+        ]
+    )
+    estimator = UserTextMacroEstimator(
+        provider=provider,
+        search_provider=search,
+        reference_fetch_settings=ReferenceFetchSettings(),
+        reference_fetch_fn=fetcher,
+    )
+    context, candidate = _macro_context_and_candidate()
+
+    estimated = estimator.estimate(context, candidate, 360.0, ("protein_g", "carbs_g", "fat_g"))
+
+    assert estimated.values == {}
+    assert estimated.source_ref is None
+    assert SNIPPET_ASSUMPTION not in estimated.assumptions

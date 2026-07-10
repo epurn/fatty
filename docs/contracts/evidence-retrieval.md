@@ -957,9 +957,18 @@ pre-FTY-314 fetch-only behavior exactly.
   distinguishable from a fetched-page transcription.
 - Confidence rank: a snippet is a **lower-confidence public reference surface**
   — below a fetched official or reference page, above pure model prior — usable
-  only when compatible and schema-valid.
+  only when compatible and schema-valid. In the user-stated missing-macro path
+  (the single-source reference fill, which commits the first accepted result), a
+  snippet-derived result must additionally pass the deterministic
+  product-compatibility check (the comparable tier's gate) before its facts may
+  fill macros, and the fill's recorded assumptions carry the
+  `search_result_snippet` label.
 - The **raw snippet is never persisted**: not in `estimation_runs.trace`,
-  `assumptions`, `source_refs`, provider errors, logs, or evidence rows.
+  `assumptions`, `source_refs`, provider errors, logs, or evidence rows. For a
+  snippet-derived extraction the provider-stated `assumptions` are discarded
+  wholesale — only the fixed content-free `search_result_snippet` label is
+  recorded — so a provider response echoing raw snippet text into its
+  assumptions can never reach evidence/run assumptions.
 - No egress change: snippets arrive on the existing search response; this adds
   no browser automation, redirects, allowlist widening, or new fetch surface.
 
