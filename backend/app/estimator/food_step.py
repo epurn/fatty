@@ -413,8 +413,9 @@ class FoodResolveStep:
             candidate,
             resolved,
             _source_type(resolved.product.source),
-            allow_unresolvable_defer=_should_defer_unresolvable_quantity(
-                candidate, self.clarify_mode
+            allow_unresolvable_defer=(
+                _is_official_eligible(candidate)
+                or _should_defer_unresolvable_quantity(candidate, self.clarify_mode)
             ),
         )
 
