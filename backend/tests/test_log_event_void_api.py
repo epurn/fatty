@@ -465,6 +465,7 @@ def test_void_round_trips_on_postgres(pg_engine: Engine) -> None:
             fat_g_estimated=0.4,
         )
         session.add(item)
+        session.flush()
         session.add(
             EvidenceSource(
                 user_id=user.id,
