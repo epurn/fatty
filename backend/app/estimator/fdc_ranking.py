@@ -244,3 +244,17 @@ def fdc_preference_key(query_key: str, description: str) -> tuple[int, int]:
     )
     coverage = sum(1 for token in query_tokens if _contains_token(description_tokens, token))
     return (demoted, -coverage)
+
+
+def is_fdc_description_rank_stable(query_key: str, description: str) -> bool:
+    """Whether a cached compatible row can safely bypass FDC candidate ranking.
+
+    A row is rank-stable only when it has no unstated demoted forms and already
+    covers every token in the query. Otherwise a fresh ranked lookup may find a
+    better row: a plain/fresh row over a canned row, or a stated-preparation row
+    over a generic compatible row (``scrambled eggs`` over raw egg).
+    """
+
+    query_tokens = _tokens(query_key)
+    unstated_demoted_forms, negative_coverage = fdc_preference_key(query_key, description)
+    return unstated_demoted_forms == 0 and -negative_coverage == len(query_tokens)

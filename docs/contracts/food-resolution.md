@@ -304,11 +304,11 @@ unstated density-changing form, stated added ingredients present; preferred by
 fewest unstated demoted forms, then query-token coverage, then relevance order —
 see **Version 15**), maps it to canonical per-100g facts, and caches it as a
 `products` row. Rejecting every result is a **miss**, not a wrong-food match. A
-**compatible** cache hit makes **no** external call; a cached row that fails
-today's compatibility gate (a stale pre-FTY-254 selection, e.g. `banana` cached
-to the dehydrated/powder row) is never served — it is re-fetched through the
-ranked lookup and the single `(source, query_key)` row is refreshed in place,
-or the resolution is a clean miss when no compatible result exists.
+**compatible rank-stable** cache hit makes **no** external call. Incompatible
+cached rows are never served; compatible but non-rank-stable rows (e.g. `tuna`
+cached to canned tuna, `scrambled eggs` to raw egg) re-fetch once and refresh the
+single `(source, query_key)` row when a better result is available, otherwise
+fall back to the compatible cache.
 
 Nutrient mapping: energy kcal (id 1008, **required**), protein (1003), carbohydrate
 (1005), total fat (1004); missing macros default to 0. A result with no energy value

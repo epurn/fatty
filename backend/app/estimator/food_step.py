@@ -73,7 +73,10 @@ from app.estimator.fdc import (
     ProductFacts,
     normalize_query,
 )
-from app.estimator.fdc_ranking import is_fdc_description_compatible
+from app.estimator.fdc_ranking import (
+    is_fdc_description_compatible,
+    is_fdc_description_rank_stable,
+)
 from app.estimator.food_serving import NutritionFacts, resolve_grams, scale_facts
 from app.estimator.off import (
     OFF_SOURCE,
@@ -224,13 +227,12 @@ class FoodResolver:
 
         Checks the ``products`` cache by normalized name first; on a miss, queries the
         source and caches the result. A cached row must still pass today's FTY-254
-        compatibility gate (:func:`is_fdc_description_compatible`) — a stale
-        pre-FTY-254 selection (e.g. ``banana`` cached to the dehydrated/powder row,
-        or ``dill pickle hummus`` cached to a pickles row) is not served; it is
-        re-fetched through the ranked source lookup and refreshed in place, or
-        treated as a clean miss when the source has no compatible row. Propagates
-        :class:`FdcTransientError` / :class:`FdcResponseError` from the source for
-        the step to route.
+        compatibility gate (:func:`is_fdc_description_compatible`), and a compatible
+        but non-rank-stable row (unstated demoted form or incomplete query-token
+        coverage) is re-fetched once so the ranked lookup can replace it when FDC
+        now returns a better match. If the fresh lookup has no replacement, the
+        compatible cache row remains usable. Propagates :class:`FdcTransientError` /
+        :class:`FdcResponseError` from the source for the step to route.
         """
 
         query_key = normalize_query(name)
@@ -240,11 +242,18 @@ class FoodResolver:
         cached = self._session.scalars(
             select(Product).where(Product.source == FDC_SOURCE, Product.query_key == query_key)
         ).one_or_none()
-        if cached is not None and is_fdc_description_compatible(query_key, cached.description):
-            return _ResolvedProduct(product=cached, fetched_at=cached.updated_at)
+        cached_is_compatible = False
+        if cached is not None:
+            cached_is_compatible = is_fdc_description_compatible(query_key, cached.description)
+            if cached_is_compatible and is_fdc_description_rank_stable(
+                query_key, cached.description
+            ):
+                return _ResolvedProduct(product=cached, fetched_at=cached.updated_at)
 
         facts = self._source.lookup(name)
         if facts is None:
+            if cached is not None and cached_is_compatible:
+                return _ResolvedProduct(product=cached, fetched_at=cached.updated_at)
             return None
         if cached is not None:
             return _ResolvedProduct(

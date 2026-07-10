@@ -445,6 +445,104 @@ def test_stale_incompatible_cached_product_is_a_miss_without_a_compatible_row(
     assert source.lookups == ["dill pickle hummus"]
 
 
+def test_demoted_compatible_cached_product_is_refreshed_from_the_ranked_source(
+    session: Session,
+) -> None:
+    """A pre-FTY-254 cache row can be compatible but still not ranking-stable:
+    ``tuna`` cached to a canned row must not bypass a fresh/plain row that the
+    ranked source lookup would now prefer."""
+
+    cached = _seed_cached_product(
+        session,
+        query_key="tuna",
+        description="Fish, tuna, light, canned in water",
+        source_ref="usda_fdc:15121",
+        calories=116.0,
+    )
+    fresh = ProductFacts(
+        source=FDC_SOURCE,
+        source_ref="usda_fdc:15076",
+        query_key="tuna",
+        description="Fish, tuna, fresh, bluefin, raw",
+        facts=NutritionFacts(calories=144.0, protein_g=23.33, carbs_g=0.0, fat_g=4.9),
+        default_serving_g=None,
+        content_hash="fresh-tuna-hash",
+    )
+    source = FakeFoodSource({"tuna": fresh})
+    resolver = FoodResolver(session=session, source=source)
+
+    resolved = resolver.resolve_product("tuna")
+
+    assert resolved is not None
+    assert source.lookups == ["tuna"]
+    assert resolved.product.id == cached.id
+    assert resolved.product.source_ref == "usda_fdc:15076"
+    assert resolved.product.description == "Fish, tuna, fresh, bluefin, raw"
+    assert resolved.product.calories_per_100g == pytest.approx(144.0)
+    assert resolved.product.content_hash == "fresh-tuna-hash"
+    assert len(session.scalars(select(Product).where(Product.query_key == "tuna")).all()) == 1
+
+
+def test_incomplete_coverage_cached_product_is_refreshed_from_the_ranked_source(
+    session: Session,
+) -> None:
+    """A raw-egg cache row is compatible for ``scrambled eggs`` but loses the
+    FTY-254 coverage tie-break to a row naming the stated preparation."""
+
+    cached = _seed_cached_product(
+        session,
+        query_key="scrambled eggs",
+        description="Egg, whole, raw, fresh",
+        source_ref="usda_fdc:1123",
+        calories=143.0,
+    )
+    scrambled = ProductFacts(
+        source=FDC_SOURCE,
+        source_ref="usda_fdc:1132",
+        query_key="scrambled eggs",
+        description="Egg, whole, cooked, scrambled",
+        facts=NutritionFacts(calories=149.0, protein_g=9.99, carbs_g=1.61, fat_g=10.98),
+        default_serving_g=None,
+        content_hash="scrambled-egg-hash",
+    )
+    source = FakeFoodSource({"scrambled eggs": scrambled})
+    resolver = FoodResolver(session=session, source=source)
+
+    resolved = resolver.resolve_product("scrambled eggs")
+
+    assert resolved is not None
+    assert source.lookups == ["scrambled eggs"]
+    assert resolved.product.id == cached.id
+    assert resolved.product.source_ref == "usda_fdc:1132"
+    assert resolved.product.description == "Egg, whole, cooked, scrambled"
+    assert resolved.product.calories_per_100g == pytest.approx(149.0)
+    assert (
+        len(session.scalars(select(Product).where(Product.query_key == "scrambled eggs")).all())
+        == 1
+    )
+
+
+def test_demoted_compatible_cached_product_remains_usable_without_a_replacement(
+    session: Session,
+) -> None:
+    cached = _seed_cached_product(
+        session,
+        query_key="tuna",
+        description="Fish, tuna, light, canned in water",
+        source_ref="usda_fdc:15121",
+        calories=116.0,
+    )
+    source = FakeFoodSource({})
+    resolver = FoodResolver(session=session, source=source)
+
+    resolved = resolver.resolve_product("tuna")
+
+    assert resolved is not None
+    assert resolved.product.id == cached.id
+    assert resolved.product.source_ref == "usda_fdc:15121"
+    assert source.lookups == ["tuna"]
+
+
 def test_compatible_cached_product_is_served_without_an_external_call(session: Session) -> None:
     cached = _seed_cached_product(
         session,

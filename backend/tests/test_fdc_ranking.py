@@ -16,7 +16,11 @@ import pytest
 from pydantic import SecretStr
 
 from app.estimator.fdc import FdcClient, FdcSettings
-from app.estimator.fdc_ranking import fdc_preference_key, is_fdc_description_compatible
+from app.estimator.fdc_ranking import (
+    fdc_preference_key,
+    is_fdc_description_compatible,
+    is_fdc_description_rank_stable,
+)
 
 # ---------------------------------------------------------------------------
 # Compatibility gate
@@ -115,6 +119,13 @@ def test_stated_demoted_form_is_not_penalized() -> None:
     assert canned < fresh
 
 
+def test_rank_stable_cache_rows_must_have_no_demotions_and_full_query_coverage() -> None:
+    assert is_fdc_description_rank_stable("tuna", "Fish, tuna, fresh, bluefin, raw") is True
+    assert is_fdc_description_rank_stable("tuna", "Fish, tuna, light, canned in water") is False
+    assert is_fdc_description_rank_stable("scrambled eggs", "Egg, whole, raw, fresh") is False
+    assert is_fdc_description_rank_stable("scrambled eggs", "Egg, whole, cooked, scrambled") is True
+
+
 # ---------------------------------------------------------------------------
 # Client-level ranking with fake FDC result lists
 # ---------------------------------------------------------------------------
@@ -208,6 +219,33 @@ def test_lookup_prefers_the_stated_preparation_over_relevance_order() -> None:
 
     assert facts is not None
     assert facts.source_ref == "usda_fdc:1132"
+
+
+def test_lookup_prefers_plain_form_over_unstated_canned_form() -> None:
+    response = {
+        "foods": [
+            _fdc_food(15121, "Fish, tuna, light, canned in water", 116.0, protein=25.5, fat=0.8),
+            _fdc_food(15076, "Fish, tuna, fresh, bluefin, raw", 144.0, protein=23.3, fat=4.9),
+        ]
+    }
+
+    facts = _client(response).lookup("tuna")
+
+    assert facts is not None
+    assert facts.source_ref == "usda_fdc:15076"
+
+
+def test_lookup_keeps_demoted_form_when_it_is_the_only_compatible_row() -> None:
+    response = {
+        "foods": [
+            _fdc_food(15121, "Fish, tuna, light, canned in water", 116.0, protein=25.5, fat=0.8),
+        ]
+    }
+
+    facts = _client(response).lookup("tuna")
+
+    assert facts is not None
+    assert facts.source_ref == "usda_fdc:15121"
 
 
 def test_lookup_falls_back_to_relevance_order_between_equal_rows() -> None:
