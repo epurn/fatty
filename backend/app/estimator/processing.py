@@ -64,7 +64,8 @@ from app.estimator.pipeline import (
 )
 from app.estimator.reference_fetch import load_reference_fetch_settings
 from app.estimator.search import build_search_provider
-from app.estimator.user_text_step import UserTextMacroEstimator, UserTextResolveStep
+from app.estimator.user_text_macro_estimator import UserTextMacroEstimator
+from app.estimator.user_text_step import UserTextResolveStep
 from app.llm import build_provider, load_llm_settings
 from app.models.derived import (
     ClarificationAnswer,

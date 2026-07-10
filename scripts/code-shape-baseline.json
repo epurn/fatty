@@ -5,12 +5,6 @@
     "test": 1000
   },
   "large_files": {
-    "backend/app/estimator/user_text_step.py": {
-      "kind": "source",
-      "lane": "estimator",
-      "lines": 800,
-      "reason": "FTY-281 crosses the 750-line source threshold wiring the comparable-reference aggregate fallback into UserTextMacroEstimator: a brand-dropped identity search for compatible reference pages, per-page compatibility/plausibility filtering, cold-pass page-fact extraction, and deterministic median aggregation (via comparable_reference.py) filling missing macros before the model-prior cold-pass; plus the review-round hardening \u2014 retained contributor provenance + read-model estimate_basis, sanitized search queries, and gated cold-pass product identity. +7 in the FTY-281 review round routing the exact reference lookup query through the same sanitized_identity + sanitize_query chokepoint as the comparable tier so prompt-like parser output in the item name never egresses. +16 in the FTY-281 review round failing closed on an empty sanitized identity in both the exact single-source lookup and the comparable brand-dropped search: with no surviving item-identity token the query degenerates to the broad fixed intent (``nutrition facts``) alone and the single-source path has no per-page compatibility gate, so it now returns early to the comparable/model-prior/unknown tiers instead of committing an unrelated page as a source-backed match. Additive; no schema/migration/serving-math change. +25 in the FTY-314 review round failing closed on snippet-derived reference evidence in the single-source missing-macro fill: a result carrying the search_result_snippet label must additionally pass the deterministic product-compatibility check (the comparable tier's gate) before its facts may fill macros, and an accepted snippet-derived fill carries the content-free snippet label on its recorded assumptions so it stays distinguishable from a fetched-page fill."
-    },
     "backend/tests/test_daily_summary_api.py": {
       "kind": "test",
       "lane": "backend",

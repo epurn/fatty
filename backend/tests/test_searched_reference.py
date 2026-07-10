@@ -26,7 +26,7 @@ from app.estimator.searched_reference import (
     SNIPPET_ASSUMPTION,
     searched_reference_per_100g,
 )
-from app.estimator.user_text_step import UserTextMacroEstimator
+from app.estimator.user_text_macro_estimator import UserTextMacroEstimator
 from app.llm.providers.fake import FakeProvider
 
 

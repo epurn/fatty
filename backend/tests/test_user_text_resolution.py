@@ -53,11 +53,11 @@ from app.estimator.search import (
 )
 from app.estimator.search_sanitization import MAX_QUERY_LEN
 from app.estimator.self_consistency import SELF_CONSISTENCY_FIRST_WINDOW
-from app.estimator.user_text_step import (
+from app.estimator.user_text_macro_estimator import (
     MACRO_ESTIMATE_NUM_SAMPLES,
     UserTextMacroEstimator,
-    UserTextResolveStep,
 )
+from app.estimator.user_text_step import UserTextResolveStep
 from app.llm.errors import LLMError
 from app.llm.providers.fake import FakeProvider
 from app.models.derived import ClarificationQuestion, DerivedFoodItem
