@@ -32,9 +32,10 @@ import { type ApiSession } from "@/state/session";
  *
  * That hydration is async while the composer stays immediately submittable, so
  * the submit path must join it rather than race it: the returned `handleSubmit`
- * wraps the submit machine's entry point and awaits an in-flight lookup —
- * writing the match into `selectedSavedFoodRef` before the machine reads it —
- * so a fast chip tap + Add still takes the estimator-skip path. Every chip tap
+ * first gives visible acknowledgement (cleared composer + disabled Add), then
+ * awaits an in-flight lookup and writes the match into `selectedSavedFoodRef`
+ * before the machine reads it, so a fast chip tap + Add still takes the
+ * estimator-skip path. Every chip tap
  * first clears the previous selection and invalidates any earlier in-flight
  * lookup (the tap replaced the composer text, so a stale resolve must never
  * attach the wrong saved food), and the returned `selectSavedFood` gives the
@@ -46,6 +47,7 @@ export function useQuickAddSuggestions({
   getSuggestions = getFoodSuggestionsApi,
   searchSavedFoods = searchSavedFoodsApi,
   setText,
+  setSubmitting,
   inputRef,
   setSelectedSavedFood,
   selectedSavedFoodRef,
@@ -57,6 +59,7 @@ export function useQuickAddSuggestions({
   getSuggestions?: typeof getFoodSuggestionsApi;
   searchSavedFoods?: typeof searchSavedFoodsApi;
   setText: (value: string) => void;
+  setSubmitting: (value: boolean) => void;
   inputRef: React.RefObject<TextInput | null>;
   setSelectedSavedFood: (food: SavedFoodDTO | null) => void;
   /**
@@ -172,8 +175,9 @@ export function useQuickAddSuggestions({
   );
 
   // Submit-time join (FTY-053 guarantee): the composer is submittable the
-  // instant a chip prefills it, so the submit awaits an in-flight hydration
-  // instead of racing it, writing the match into the ref the machine reads.
+  // instant a chip prefills it, so the submit visibly acknowledges the tap
+  // before awaiting an in-flight hydration instead of racing it, writing the
+  // match into the ref the machine reads.
   // A lookup that already settled applied its result to the selection state,
   // and the common no-chip submit has nothing to join — both keep the fully
   // synchronous path (and its same-tick optimistic acknowledgement). A miss,
@@ -191,6 +195,8 @@ export function useQuickAddSuggestions({
       return;
     }
     joiningSubmit.current = true;
+    setText("");
+    setSubmitting(true);
     try {
       const match = await pending.promise;
       if (match && pendingSavedFoodLookup.current === pending) {
@@ -200,7 +206,7 @@ export function useQuickAddSuggestions({
     } finally {
       joiningSubmit.current = false;
     }
-  }, [submitLogEntry, selectedSavedFoodRef]);
+  }, [setText, setSubmitting, submitLogEntry, selectedSavedFoodRef]);
 
   // A deliberate FTY-053 typeahead selection supersedes an in-flight chip
   // hydration — without this, a stale chip lookup resolving after the

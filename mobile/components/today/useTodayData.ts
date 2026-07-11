@@ -642,6 +642,7 @@ export function useTodayData({
     getSuggestions,
     searchSavedFoods,
     setText,
+    setSubmitting,
     inputRef,
     setSelectedSavedFood,
     selectedSavedFoodRef,

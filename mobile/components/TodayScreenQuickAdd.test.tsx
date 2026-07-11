@@ -312,8 +312,18 @@ describe("TodayScreen quick-add suggestion chips (FTY-341)", () => {
     press(tree, "Suggestion: Greek yogurt");
     press(tree, "Add entry");
 
-    // The submit joined the in-flight hydration instead of racing past it.
+    // The submit immediately acknowledges the tap while joining the in-flight
+    // hydration instead of racing past it.
     expect(create).not.toHaveBeenCalled();
+    expect(inputValue(tree, "Log food or exercise")).toBe("");
+    expect(textContent(tree)).toContain("Adding…");
+    expect(
+      tree.root.find(
+        (node) =>
+          node.props.accessibilityLabel === "Add entry" &&
+          typeof node.props.onPress === "function",
+      ).props.accessibilityState,
+    ).toEqual({ disabled: true });
 
     await act(async () => {
       resolveLookup({ items: [yogurt], limit: 20 });
