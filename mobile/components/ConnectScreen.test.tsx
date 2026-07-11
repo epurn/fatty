@@ -348,7 +348,7 @@ describe("QR scan", () => {
     const text = tree.root
       .findAll((n) => typeof n.props.children === "string")
       .map((n) => n.props.children as string);
-    expect(text).toContain("That QR isn't a Fatty server URL.");
+    expect(text).toContain("That QR isn't a Slacks server URL.");
     expect(inputValue(tree)).toBe("");
   });
 });

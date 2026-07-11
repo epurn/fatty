@@ -25,7 +25,7 @@ const getItemAsync = SecureStore.getItemAsync as jest.Mock;
 const deleteItemAsync = SecureStore.deleteItemAsync as jest.Mock;
 
 const SESSION: SessionRecord = {
-  serverUrl: "https://fatty.example.test",
+  serverUrl: "https://slacks.example.test",
   token: "header.signature",
   userId: "11111111-1111-1111-1111-111111111111",
 };
