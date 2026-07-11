@@ -52,6 +52,20 @@ Retention defaults should minimize stored personal data while preserving user va
   expo-file-system. It is a non-sensitive UI preference — no body data, no
   personal data — held only on the device, never sent to the server, and never
   logged. It adds no server-side retention surface; reinstalling the app clears it.
+- Exact-evidence proposal reference (`Make it exact`, FTY-306/FTY-307): **stateless,
+  not stored.** A proposal is not persisted in any table; the client receives an
+  opaque, server-signed `proposal_ref` — an HMAC-SHA256 signature (keyed by the
+  existing `SLACKS_AUTH_SECRET`) over a base64url JSON payload that binds the owning
+  user, target item, evidence kind/quality, source type/ref, the extracted per-100g
+  facts + basis, the default-serving costability metadata, and an issued/expiry pair
+  (the replay guard). It carries **only** extracted/validated facts and refs — never
+  raw image bytes, OCR text, raw provider output, or fetched page content — and is
+  short-lived (an unapplied reference expires, default 30 minutes; it is not durable
+  user history). Because nothing is stored server-side it adds **no** new retention
+  surface: there is no proposal row to delete, and the signing secret is never
+  embedded in the reference or logged. The nutrition values it carries and the
+  reference itself are never logged, exactly as the correction/evidence values are
+  not (mirrors the stateless bearer token, `app/security/tokens.py`).
 - Logs: short operational retention; no secrets or unnecessary personal data.
 
 ## Deletion Requirements

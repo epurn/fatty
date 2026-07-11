@@ -115,18 +115,36 @@ def build_item_source(session: Session, item: DerivedFoodItem) -> ItemSourceDTO 
     if evidence is None:
         return None
 
+    return source_descriptor(evidence.source_type, evidence.source_ref, evidence.assumptions)
+
+
+def source_descriptor(
+    source_type_value: str, source_ref: str, assumptions: list[str] | None
+) -> ItemSourceDTO | None:
+    """Build the per-item source descriptor from raw evidence fields, or ``None``.
+
+    Shared by :func:`build_item_source` (which reads them off the item's
+    ``evidence_sources`` row) and the FTY-307 exact-evidence proposal **preview**,
+    which projects the descriptor a would-be applied item *would* carry directly
+    from a server-held proposal — before any evidence row exists — so the preview's
+    source label and the applied item's label are derived by one code path and can
+    never disagree (a fallback proposal reads its honest ``reference_source`` /
+    ``model_prior`` label, never ``product_database`` / ``user_label``). An
+    unrecognized ``source_type`` yields ``None`` defensively rather than raising.
+    """
+
     try:
-        source_type = SourceType(evidence.source_type)
+        source_type = SourceType(source_type_value)
     except ValueError:
-        # An evidence row with a source_type outside the known hierarchy: surface no
-        # descriptor rather than guessing or raising on a read path.
+        # A source_type outside the known hierarchy: surface no descriptor rather
+        # than guessing or raising on a read path.
         return None
 
     return ItemSourceDTO(
         source_type=source_type,
-        label=_source_label(source_type, evidence.source_ref),
-        ref=evidence.source_ref,
-        estimate_basis=_macro_estimate_basis(source_type, evidence.assumptions),
+        label=_source_label(source_type, source_ref),
+        ref=source_ref,
+        estimate_basis=_macro_estimate_basis(source_type, assumptions),
     )
 
 

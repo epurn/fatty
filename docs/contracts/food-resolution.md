@@ -1466,3 +1466,17 @@ The backend exposes four health-check endpoints, all returning structured JSON w
   source tier, no schema change (`evidence_sources` shapes and `corrections`
   strings already carry everything). Backend implementation is
   **FTY-307–FTY-309**; mobile consumption is **FTY-310–FTY-313**.
+- **FTY-307 (generic apply route + trust anchor; no schema, no migration).** Lands
+  the source-agnostic apply operation at
+  `POST /api/users/{user_id}/derived-items/food/{item_id}/exact-upgrade/apply`
+  (body `{ "proposal_ref": "...", "amount"?: number }`, `extra="forbid"` — no
+  nutrition facts). It verifies the opaque server-signed `proposal_ref` for the
+  owning user + item, preserves the current amount by default (applying an optional
+  adjustment before the FTY-044 recompute, folded into the one re-resolution — no
+  separate `amount_adjust` row), rewrites `evidence_sources` in place, re-snapshots
+  `*_estimated`, and appends one `re_match` correction row. Fail-closed errors match
+  this section's table: `404` for cross-user/unknown/voided-parent (the FTY-321
+  boundary precheck), `422 proposal_not_resolvable` for a tampered/expired/
+  wrong-user/wrong-item reference, and `422 amount_required` for an uncostable
+  current/adjusted amount — each with no mutation. Barcode/label proposal
+  **generation** is **FTY-308/FTY-309**; this story applies stubbed proposals.
