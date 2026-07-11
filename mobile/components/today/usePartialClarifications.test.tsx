@@ -3,7 +3,11 @@ import { act, create } from "react-test-renderer";
 import type { LogEventDTO } from "@/api/logEvents";
 import type { ApiSession } from "@/state/session";
 
-import { usePartialClarifications, type QuestionsByEvent } from "./usePartialClarifications";
+import {
+  usePartialClarifications,
+  PARTIAL_CLARIFICATION_RETRY_MS,
+  type QuestionsByEvent,
+} from "./usePartialClarifications";
 import { event } from "./todayTestUtils";
 
 const SESSION: ApiSession = {
@@ -111,6 +115,41 @@ describe("usePartialClarifications (FTY-330)", () => {
       { id: "q1", text: "How much hummus?", options: [] },
     ]);
     harness.unmount();
+  });
+
+  it("retries a failed initial read so the open component is not hidden", async () => {
+    jest.useFakeTimers();
+    try {
+      // The first read rejects (nothing was ever shown), the retry succeeds.
+      const getClarification = jest
+        .fn()
+        .mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValue({
+          questions: [{ id: "q1", text: "How much hummus?", options: [] }],
+        });
+      const harness = renderHook({
+        events: [event({ id: "a", status: "partially_resolved" })],
+        getClarification,
+      });
+      // Initial failed read leaves no question: the row would be hidden if the
+      // hook gave up here (partial events are not poll-worthy).
+      await act(async () => {});
+      expect(harness.captured.value).toEqual({});
+
+      // The scheduled retry fires and the second read resolves the question.
+      await act(async () => {
+        jest.advanceTimersByTime(PARTIAL_CLARIFICATION_RETRY_MS);
+      });
+      await act(async () => {});
+
+      expect(getClarification).toHaveBeenCalledTimes(2);
+      expect(harness.captured.value.a).toEqual([
+        { id: "q1", text: "How much hummus?", options: [] },
+      ]);
+      harness.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("clears questions once no event is partially_resolved", async () => {

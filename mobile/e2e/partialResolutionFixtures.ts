@@ -21,6 +21,13 @@ const E2E_PARTIAL_EVENT_ID =
   'e2e-partial-event-00000000-0000-0000-0000-000000000000';
 
 /**
+ * Raw phrase the FTY-330 hermetic Maestro flow submits to drive the partial
+ * phase machine (`partial-resolution.yaml`). Keyed on its own text so the mock
+ * never collides with the clarify ("coffee") or other flows' phase machines.
+ */
+export const E2E_PARTIAL_RAW_TEXT = 'greek yogurt and some hummus';
+
+/**
  * A mixed log whose costable sibling (greek yogurt) is committed and counted
  * while one component (hummus) stays unresolved with an open item-scoped
  * question. The raw phrase never appears as a row on a partial event — the open
@@ -68,6 +75,23 @@ export const E2E_PARTIAL_RESOLVED_ITEM: DerivedFoodItemDTO = {
   is_edited: false,
 };
 
+/**
+ * The same event once the open component's question is answered (FTY-330). The
+ * answer round-trip resolves the event *in place* — same id, raw phrase, and
+ * `created_at` — so the timeline reconciles the existing partial rows into the
+ * completed entry rather than spawning a duplicate. Emitted `processing` first
+ * (the scoped re-estimate, FTY-349), then `completed`.
+ */
+export const E2E_PARTIAL_PROCESSING_EVENT: LogEventDTO = {
+  ...E2E_PARTIAL_EVENT,
+  status: 'processing',
+};
+
+export const E2E_PARTIAL_COMPLETED_EVENT: LogEventDTO = {
+  ...E2E_PARTIAL_EVENT,
+  status: 'completed',
+};
+
 /** The open component's question text — names the component, never the raw phrase. */
 const E2E_PARTIAL_QUESTION = 'How much hummus?';
 
@@ -96,6 +120,54 @@ export const E2E_PARTIAL_SUMMARY: DailySummaryDTO = {
   intake: { calories: 140, protein_g: 20, carbs_g: 9, fat_g: 4 },
   has_intake: true,
   uncounted_entries: 1,
+  target: E2E_TARGET,
+  exercise: { active_calories: 0 },
+};
+
+/**
+ * The answered component, now a normal counted row (FTY-330). Once the hummus
+ * question is answered the backend re-estimates just that component and commits
+ * it as a `resolved` sibling of the *same* event — the yogurt row is untouched.
+ */
+export const E2E_PARTIAL_HUMMUS_ITEM: DerivedFoodItemDTO = {
+  item_type: 'food',
+  id: 'e2e-partial-hummus-00000000-0000-0000-0000-000000000000',
+  user_id: E2E_SESSION.userId,
+  log_event_id: E2E_PARTIAL_EVENT_ID,
+  name: 'Hummus',
+  quantity_text: '2 tbsp',
+  unit: 'tbsp',
+  amount: 2,
+  status: 'resolved',
+  grams: 30,
+  calories: 100,
+  protein_g: 3,
+  carbs_g: 8,
+  fat_g: 6,
+  calories_estimated: 100,
+  protein_g_estimated: 3,
+  carbs_g_estimated: 8,
+  fat_g_estimated: 6,
+  created_at: E2E_RESOLVED_EVENT_INSTANT,
+  updated_at: E2E_RESOLVED_EVENT_INSTANT,
+  source: {
+    source_type: 'trusted_nutrition_database',
+    label: 'USDA',
+    ref: 'usda_fdc:172470',
+  },
+  is_edited: false,
+};
+
+/**
+ * The day summary once the open component is answered: both siblings now count
+ * (140 + 100 kcal) and no open question remains, so `uncounted_entries` drops to
+ * zero — the running-app proof that answering completes the partial event.
+ */
+export const E2E_PARTIAL_RESOLVED_SUMMARY: DailySummaryDTO = {
+  date: '2026-01-01',
+  intake: { calories: 240, protein_g: 23, carbs_g: 17, fat_g: 10 },
+  has_intake: true,
+  uncounted_entries: 0,
   target: E2E_TARGET,
   exercise: { active_calories: 0 },
 };

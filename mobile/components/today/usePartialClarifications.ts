@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   getLogEventClarification as getLogEventClarificationApi,
@@ -16,6 +16,18 @@ export type QuestionsByEvent = Readonly<
 const EMPTY: QuestionsByEvent = Object.freeze({});
 
 /**
+ * Backoff before re-reading a partial event's question after a *failed* read that
+ * left the open component with nothing to show. A `partially_resolved` event is
+ * not poll-worthy (`state/polling.ts`), so the timeline's normal poll never
+ * retries this read — without a self-scheduled retry a transient first-read
+ * failure would hide the open component (and its answer CTA) until a manual
+ * refresh. The retry runs only while a question is genuinely missing and stops
+ * the moment one is fetched (or the event leaves `partially_resolved`), so a
+ * settled partial day schedules no timer.
+ */
+export const PARTIAL_CLARIFICATION_RETRY_MS = 4000;
+
+/**
  * Fetch the open item-scoped clarification questions for the timeline's
  * `partially_resolved` events (FTY-330).
  *
@@ -31,8 +43,11 @@ const EMPTY: QuestionsByEvent = Object.freeze({});
  * set, then re-adding it), so keying on the set alone re-fetches exactly when a
  * new round can have replaced the questions — no per-poll refetch churn. A
  * failed read keeps the last-known questions so the row never flickers away
- * (calm by default); an event that leaves `partially_resolved` drops out because
- * the next result set no longer includes it.
+ * (calm by default); a failed read that had *nothing* to keep (the open
+ * component would otherwise vanish) schedules a backoff retry, because a partial
+ * event is not poll-worthy and would otherwise stay hidden until a manual
+ * refresh; an event that leaves `partially_resolved` drops out because the next
+ * result set no longer includes it.
  */
 export function usePartialClarifications({
   apiSession,
@@ -50,6 +65,13 @@ export function usePartialClarifications({
   // entry; a failed read keeps its prior entry (no flicker). Entries are pruned
   // to the current partial set at read time and again in the returned view.
   const [fetched, setFetched] = useState<QuestionsByEvent>(EMPTY);
+  // Mirror of `fetched` so the async read can merge against the latest value
+  // without threading it through a functional update (the retry decision below
+  // needs to know which ids ended up with no question).
+  const fetchedRef = useRef<QuestionsByEvent>(fetched);
+  // Bumped by the retry timer to re-run the effect when a failed read left an
+  // open component with no question to show.
+  const [retryTick, setRetryTick] = useState(0);
 
   const partialIds = useMemo(
     () =>
@@ -66,6 +88,7 @@ export function usePartialClarifications({
   useEffect(() => {
     if (!apiSession || partialIds.length === 0) return;
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     Promise.all(
       partialIds.map((id) =>
         getClarification(apiSession, id).then(
@@ -76,23 +99,35 @@ export function usePartialClarifications({
       ),
     ).then((results) => {
       if (!active) return;
-      setFetched((prev) => {
-        const next: Record<string, readonly ClarificationQuestionDTO[]> = {};
-        for (const [id, questions] of results) {
-          if (questions !== null) {
-            next[id] = questions;
-          } else if (prev[id]) {
-            next[id] = prev[id];
-          }
+      const prev = fetchedRef.current;
+      const next: Record<string, readonly ClarificationQuestionDTO[]> = {};
+      for (const [id, questions] of results) {
+        if (questions !== null) {
+          next[id] = questions;
+        } else if (prev[id]) {
+          next[id] = prev[id];
         }
-        return next;
-      });
+      }
+      fetchedRef.current = next;
+      setFetched(next);
+      // A partial event whose read failed with nothing shown before has no
+      // question row yet — retry on a timer so a transient first-read failure
+      // can't hide the open component until a manual refresh. Self-terminating:
+      // once every open component has a question (or the partial set empties)
+      // no id is missing, so no further timer is scheduled.
+      const anyMissing = partialIds.some((id) => next[id] === undefined);
+      if (anyMissing) {
+        retryTimer = setTimeout(() => {
+          if (active) setRetryTick((tick) => tick + 1);
+        }, PARTIAL_CLARIFICATION_RETRY_MS);
+      }
     });
     return () => {
       active = false;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiSession, getClarification, partialKey, reloadKey]);
+  }, [apiSession, getClarification, partialKey, reloadKey, retryTick]);
 
   // Return only questions for events that are *currently* partially-resolved, so
   // an event that has advanced (answered → processing) drops its stale question
