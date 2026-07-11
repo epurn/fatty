@@ -3,10 +3,11 @@
 The side-effectful slice of the food dogfood smoke: the minimal bearer-auth JSON
 client that talks to the live local API, the response-parsing helpers that turn
 raw DTOs into the sanitized :class:`SmokeItem` view, the token-subject decode the
-login flow needs, and the poll loop that waits each submitted event to a terminal
-estimation state. :mod:`app.ops.food_dogfood_smoke` owns the pure assessment layer
-and the ``run()``/``main()`` orchestration that wires this client to it (FTY-356
-split the two so neither module crowds the code-shape source ceiling).
+login flow needs, the poll loop that waits each submitted event to a terminal
+estimation state, and the ``acquire_account`` login-first/register-once bootstrap
+that runs the account IO flow. :mod:`app.ops.food_dogfood_smoke` owns the pure
+assessment layer and the ``run()``/``main()`` orchestration that wires this client
+to it (FTY-356 split the two so neither module crowds the code-shape source ceiling).
 
 Everything here either performs IO against the live stack or shapes a live
 response for assessment. It is sanitized by construction: the bearer token is
@@ -32,6 +33,7 @@ __all__ = [
     "EventUnderTest",
     "SmokeError",
     "SmokeItem",
+    "acquire_account",
     "poll_all",
 ]
 
@@ -319,3 +321,23 @@ def poll_all(
             sleep(POLL_INTERVAL_SECONDS)  # type: ignore[operator]
     for event in remaining.values():
         event.status = event.status or "timeout"
+
+
+def acquire_account(client: ApiClient, email: str, password: str) -> str:
+    """Return the throwaway account's user id, bootstrapping it once if absent.
+
+    Login-first makes the smoke safe to run repeatedly: only the first run on a
+    stack registers (one register-limiter slot ever), every later run uses the
+    more generous login limiter, so the smoke never trips the default
+    5-registrations-per-hour ceiling before a food fixture is exercised.
+
+    ``email``/``password`` are the caller's throwaway credentials (see
+    :func:`app.ops.food_dogfood_smoke.throwaway_credentials`); taking them as
+    arguments keeps the credential constants on the smoke side of the split.
+    """
+
+    user_id = client.login(email, password)
+    if user_id is not None:
+        return user_id
+    # First run on this stack (or the account was reset): register it once.
+    return client.register(email, password)

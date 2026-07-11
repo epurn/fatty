@@ -98,14 +98,14 @@ class _FakeAccountClient:
 
 def test_acquire_account_reuses_login_and_never_registers_on_repeat_runs() -> None:
     client = _FakeAccountClient(login_result="existing-user-id")
-    assert smoke.acquire_account(client) == "existing-user-id"  # type: ignore[arg-type]
+    assert api.acquire_account(client, "e", "p") == "existing-user-id"  # type: ignore[arg-type]
     # The steady-state path: login only, so no register-limiter slot is spent.
     assert client.calls == ["login"]
 
 
 def test_acquire_account_registers_once_when_account_absent() -> None:
     client = _FakeAccountClient(login_result=None, register_result="new-user-id")
-    assert smoke.acquire_account(client) == "new-user-id"  # type: ignore[arg-type]
+    assert api.acquire_account(client, "e", "p") == "new-user-id"  # type: ignore[arg-type]
     # First run only: login (401 → None) then a single bootstrap register.
     assert client.calls == ["login", "register"]
 

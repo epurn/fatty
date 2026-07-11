@@ -15,8 +15,9 @@ complete with honest provenance.
 This module owns the **pure assessment layer** (fixture-outcome verdicts and the
 sanitized report formatting) and the ``run()``/``main()`` orchestration that
 wires it to the side-effectful HTTP/IO client. That client — :class:`ApiClient`,
-the response-parsing helpers, and the poll loop — lives in
-:mod:`app.ops.food_dogfood_api` (FTY-356 split the two so neither module crowds
+the response-parsing helpers, the poll loop, and the ``acquire_account`` account
+bootstrap — lives in :mod:`app.ops.food_dogfood_api` (FTY-356 split the two so
+neither module crowds
 the code-shape source ceiling); the fixture data-model + JSON loader live in
 :mod:`app.ops.food_dogfood_fixtures`.
 
@@ -59,6 +60,7 @@ from app.ops.food_dogfood_api import (
     EventUnderTest,
     SmokeError,
     SmokeItem,
+    acquire_account,
     poll_all,
 )
 from app.ops.food_dogfood_fixtures import FIXTURES, FixtureSpec, ItemBand, load_fixtures
@@ -317,23 +319,6 @@ def format_assessment(assessment: FixtureAssessment) -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
-def acquire_account(client: ApiClient) -> str:
-    """Return the throwaway account's user id, bootstrapping it once if absent.
-
-    Login-first makes the smoke safe to run repeatedly: only the first run on a
-    stack registers (one register-limiter slot ever), every later run uses the
-    more generous login limiter, so the smoke never trips the default
-    5-registrations-per-hour ceiling before a food fixture is exercised.
-    """
-
-    email, password = throwaway_credentials()
-    user_id = client.login(email, password)
-    if user_id is not None:
-        return user_id
-    # First run on this stack (or the account was reset): register it once.
-    return client.register(email, password)
-
-
 def _emit(line: str = "") -> None:
     print(line)
 
@@ -379,11 +364,11 @@ def run() -> int:
     _emit(f"Target: {base_url}")
 
     client = ApiClient(base_url=base_url)
-    email, _ = throwaway_credentials()
+    email, password = throwaway_credentials()
     _emit(f"Throwaway account: {email} (reused; registered once per stack)")
 
     try:
-        user_id = acquire_account(client)
+        user_id = acquire_account(client, email, password)
         submitted = [
             EventUnderTest(spec=spec, event_id=client.submit(user_id, spec.raw_text))
             for spec in FIXTURES
