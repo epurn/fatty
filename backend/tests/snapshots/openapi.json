@@ -663,6 +663,33 @@
         "title": "EgressPolicy",
         "type": "object"
       },
+      "ExactEvidenceApplyRequest": {
+        "additionalProperties": false,
+        "description": "Request body for ``.../food/{item_id}/exact-upgrade/apply``.\n\n``proposal_ref`` is the opaque, server-generated reference the propose route\nreturned \u2014 the only key apply accepts. ``amount`` is an **optional** user\namount adjustment (in the item's canonical units), applied before costing; when\nomitted the item's current amount is preserved. ``extra=\"forbid\"`` rejects any\nclient-supplied nutrition facts or unknown keys with a ``422``.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "proposal_ref": {
+            "minLength": 1,
+            "title": "Proposal Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_ref"
+        ],
+        "title": "ExactEvidenceApplyRequest",
+        "type": "object"
+      },
       "FoodSuggestionDTO": {
         "description": "One ranked quick-add suggestion for the Today composer.",
         "properties": {
@@ -2506,6 +2533,86 @@
         "summary": "Get Daily Summary Range",
         "tags": [
           "daily-summary"
+        ]
+      }
+    },
+    "/api/users/{user_id}/derived-items/food/{item_id}/exact-upgrade/apply": {
+      "post": {
+        "description": "Apply a server-signed exact-evidence proposal to the caller's own food item.\n\nRewrites the item's source in place from the verified proposal and returns the\nupdated item DTO (its new ``source`` descriptor and ``is_edited = false`` visible\nthrough the existing read model). Cross-user or unknown items \u2014 and items whose\nparent log event is voided \u2014 fail closed as ``404``; a proposal reference that is\ntampered, expired, or not held for this user + item returns ``422\nproposal_not_resolvable``; an uncostable amount returns ``422 amount_required``.",
+        "operationId": "apply_exact_evidence_api_users__user_id__derived_items_food__item_id__exact_upgrade_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExactEvidenceApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DerivedFoodItemDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Exact Evidence",
+        "tags": [
+          "exact-evidence"
         ]
       }
     },

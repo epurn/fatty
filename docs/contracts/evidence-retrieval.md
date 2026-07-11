@@ -1396,7 +1396,15 @@ amount adjustment (`food-resolution.md` owns the operation shape). It:
   owning user + item, and is short-lived (an unapplied proposal expires; it is
   not durable user history). The concrete storage mechanism is fixed by
   FTY-307–FTY-309, which document its retention per the
-  `docs/security/data-retention.md` PR requirement.
+  `docs/security/data-retention.md` PR requirement. **As built (FTY-307):** the
+  proposal is **not stored** — the `proposal_ref` is a stateless, HMAC-signed opaque
+  reference (keyed by the existing application secret) whose payload *is* the bound
+  proposal (owner, item, kind/quality, source type/ref, per-100g facts + basis,
+  costability metadata, issued/expiry replay guard). Apply verifies the signature,
+  expiry, and owner+item binding server-side and re-derives the facts from the
+  verified payload; a tampered, expired, or wrong-user/wrong-item reference is
+  rejected with no mutation. No new table, no migration, and no server-side proposal
+  row — see `docs/security/data-retention.md`.
 
 ## Migration / Compatibility
 
@@ -1547,3 +1555,21 @@ amount adjustment (`food-resolution.md` owns the operation shape). It:
   semantics are `corrections.md`; label retention is `label-upload.md` /
   `log-attachments.md`. Backend implementation is **FTY-307–FTY-309**; mobile
   consumption is **FTY-310–FTY-313**.
+- **FTY-307 (generic proposal apply foundation; no schema, no migration, no new
+  source tier/status/field).** Implements the source-agnostic **apply** half and the
+  server-verifiable **trust anchor**: `app/estimator/exact_evidence.py` (the
+  `ExactEvidenceProposal` payload, the stateless HMAC-signed `proposal_ref`
+  encode/decode, and `ExactEvidenceApplyCapability`), the
+  `app/schemas/exact_evidence.py` DTOs (`ExactEvidenceApplyRequest`,
+  `ExactEvidenceProposalDTO` + preview), `app/services/exact_evidence.py`
+  (`serialize_proposal` — the proposal read projection), and the thin
+  `POST .../food/{item_id}/exact-upgrade/apply` route. Apply **reuses the FTY-093
+  re-match write helpers** (`app/estimator/re_match.py` `apply_resolved_facts` /
+  `record_re_match_correction`) — it is a specialized re-resolution, not a second
+  correction model. The `proposal_ref` is an opaque signed reference (no proposal
+  table), so there is no migration and no new stored field (`docs/security/
+  data-retention.md`). A `fallback` proposal writes its honest low-trust
+  `source_type` / `assumptions` / `field_provenance` verbatim, so it never reads as
+  `product_database` / `user_label`. Source-specific barcode/label proposal
+  **generation** (which mints the `proposal_ref`) is **FTY-308/FTY-309**; this story
+  ships apply against stubbed proposals.

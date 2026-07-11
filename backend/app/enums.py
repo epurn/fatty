@@ -345,6 +345,44 @@ class MacroEstimateBasis(StrEnum):
 ESTIMATE_BASIS_ASSUMPTION_PREFIX = "macro estimate basis: "
 
 
+class ExactEvidenceKind(StrEnum):
+    """Which evidence kind produced an exact-evidence proposal (FTY-306/307).
+
+    The ``Make it exact`` lever builds a server-held proposal from user-supplied
+    **product evidence**; this names the evidence source that produced it so the
+    read shape and the apply audit can tell a barcode upgrade from a label one:
+
+    - :attr:`BARCODE` — a typed or scanned barcode, resolved server-side through
+      the hardened Open Food Facts path (generation is FTY-308).
+    - :attr:`LABEL` — a nutrition-label photo, resolved server-side through the
+      schema-validated label-extraction path (generation is FTY-309).
+    """
+
+    BARCODE = "barcode"
+    LABEL = "label"
+
+
+class ExactEvidenceQuality(StrEnum):
+    """Trust quality of an exact-evidence proposal (FTY-306/307).
+
+    Fixes whether the supplied evidence resolved through its **exact** source or
+    fell back to an honestly lower-trust one, so a fallback can never masquerade as
+    exact in the proposal, preview, or applied provenance:
+
+    - :attr:`EXACT` — the evidence resolved through its exact source (barcode →
+      ``product_database``, label → ``user_label``).
+    - :attr:`FALLBACK` — exact evidence failed but a lower-trust estimator source
+      (``reference_source`` / ``model_prior`` / a comparable-reference aggregate)
+      produced a better rough result; it stays visibly rough and editable.
+    - :attr:`NONE` — neither exact evidence nor a usable fallback could be produced;
+      a failure read with nothing to apply.
+    """
+
+    EXACT = "exact"
+    FALLBACK = "fallback"
+    NONE = "none"
+
+
 class SavedFoodSource(StrEnum):
     """Provenance of a ``saved_foods`` row (FTY-052).
 
