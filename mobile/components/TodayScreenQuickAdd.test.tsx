@@ -19,6 +19,7 @@ import {
   savedFood,
   summary,
   textContent,
+  typeInto,
 } from "./today/todayTestUtils";
 
 /**
@@ -345,6 +346,108 @@ describe("TodayScreen quick-add suggestion chips (FTY-341)", () => {
       );
     });
     expect(textContent(tree)).toContain("200");
+  });
+
+  it("drops a saved-food chip's pending hydration when the user edits the prefilled text", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const yogurt = savedFood({ id: "sf-1", name: "Greek yogurt", calories: 200 });
+    let resolveLookup!: (response: SavedFoodSearchResponse) => void;
+    const searchSavedFoods = jest.fn().mockReturnValue(
+      new Promise<SavedFoodSearchResponse>((resolve) => {
+        resolveLookup = resolve;
+      }),
+    );
+    const create = jest
+      .fn()
+      .mockResolvedValue(
+        event({
+          id: "server-7",
+          raw_text: "my usual yogurt with honey",
+          status: "pending",
+        }),
+      );
+    const getSuggestions = jest
+      .fn()
+      .mockResolvedValue({ items: [SAVED_SUGGESTION], limit: 8 });
+
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        searchSavedFoods={searchSavedFoods}
+        getSuggestions={getSuggestions}
+        useActive={ACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    press(tree, "Suggestion: Greek yogurt");
+    typeInto(tree, "Log food or exercise", "my usual yogurt with honey");
+    await act(async () => {
+      resolveLookup({ items: [yogurt], limit: 20 });
+    });
+
+    await act(async () => {
+      press(tree, "Add entry");
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: SESSION!.userId }),
+      "my usual yogurt with honey",
+      expect.any(String),
+    );
+    expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    expect(textContent(tree)).not.toContain("200");
+  });
+
+  it("drops a hydrated saved-food chip selection when the user edits the prefilled text", async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const yogurt = savedFood({ id: "sf-1", name: "Greek yogurt", calories: 200 });
+    const searchSavedFoods = jest
+      .fn()
+      .mockResolvedValue({ items: [yogurt], limit: 20 });
+    const create = jest
+      .fn()
+      .mockResolvedValue(
+        event({
+          id: "server-8",
+          raw_text: "my edited yogurt",
+          status: "pending",
+        }),
+      );
+    const getSuggestions = jest
+      .fn()
+      .mockResolvedValue({ items: [SAVED_SUGGESTION], limit: 8 });
+
+    const tree = mount(
+      <TodayScreen
+        session={SESSION}
+        load={load}
+        create={create}
+        searchSavedFoods={searchSavedFoods}
+        getSuggestions={getSuggestions}
+        useActive={ACTIVE}
+      />,
+    );
+    await act(async () => {});
+
+    await act(async () => {
+      press(tree, "Suggestion: Greek yogurt");
+    });
+    typeInto(tree, "Log food or exercise", "my edited yogurt");
+
+    await act(async () => {
+      press(tree, "Add entry");
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: SESSION!.userId }),
+      "my edited yogurt",
+      expect.any(String),
+    );
+    expect(hasA11yLabel(tree, "Waiting to estimate")).toBe(true);
+    expect(textContent(tree)).not.toContain("200");
   });
 
   it("drops a superseded chip's late hydration when another chip is tapped before submit", async () => {

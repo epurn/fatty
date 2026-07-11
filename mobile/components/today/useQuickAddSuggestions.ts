@@ -38,8 +38,10 @@ import { type ApiSession } from "@/state/session";
  * estimator-skip path. Every chip tap
  * first clears the previous selection and invalidates any earlier in-flight
  * lookup (the tap replaced the composer text, so a stale resolve must never
- * attach the wrong saved food), and the returned `selectSavedFood` gives the
- * FTY-053 typeahead the same supersede power over an in-flight chip hydration.
+ * attach the wrong saved food). Manual composer edits do the same invalidation
+ * because edited text is no longer the saved-food chip the user selected, and
+ * the returned `selectSavedFood` gives the FTY-053 typeahead the same supersede
+ * power over an in-flight chip hydration.
  */
 export function useQuickAddSuggestions({
   apiSession,
@@ -74,6 +76,7 @@ export function useQuickAddSuggestions({
   suggestions: readonly FoodSuggestionDTO[];
   refreshSuggestions: () => void;
   handleSelectSuggestion: (suggestion: FoodSuggestionDTO) => void;
+  handleComposerTextChange: (value: string) => void;
   handleSubmit: () => Promise<void>;
   selectSavedFood: (food: SavedFoodDTO | null) => void;
 } {
@@ -144,6 +147,7 @@ export function useQuickAddSuggestions({
       // in-flight lookup — no longer describes what will be submitted.
       setSelectedSavedFood(null);
       pendingSavedFoodLookup.current = null;
+      selectedSavedFoodRef.current = null;
       if (!suggestion.saved_food_id || !apiSession) return;
       // Hydrate the saved food so the subsequent submit skips the estimator
       // (FTY-053). The label is the saved food's own name, so a contains-match
@@ -165,13 +169,23 @@ export function useQuickAddSuggestions({
             // resolve must not attach the wrong saved food to the current text.
             if (pendingSavedFoodLookup.current !== entry) return null;
             entry.settled = true;
-            if (match) setSelectedSavedFood(match);
+            if (match) {
+              selectedSavedFoodRef.current = match;
+              setSelectedSavedFood(match);
+            }
             return match;
           }),
       };
       pendingSavedFoodLookup.current = entry;
     },
-    [apiSession, searchSavedFoods, setText, inputRef, setSelectedSavedFood],
+    [
+      apiSession,
+      searchSavedFoods,
+      setText,
+      inputRef,
+      setSelectedSavedFood,
+      selectedSavedFoodRef,
+    ],
   );
 
   // Submit-time join (FTY-053 guarantee): the composer is submittable the
@@ -187,6 +201,16 @@ export function useQuickAddSuggestions({
   // machine's own `submitting` guard cannot see (it only closes over state
   // from completed renders).
   const joiningSubmit = useRef(false);
+  const handleComposerTextChange = useCallback(
+    (value: string) => {
+      pendingSavedFoodLookup.current = null;
+      selectedSavedFoodRef.current = null;
+      setSelectedSavedFood(null);
+      setText(value);
+    },
+    [selectedSavedFoodRef, setSelectedSavedFood, setText],
+  );
+
   const handleSubmit = useCallback(async () => {
     if (joiningSubmit.current) return;
     const pending = pendingSavedFoodLookup.current;
@@ -214,15 +238,17 @@ export function useQuickAddSuggestions({
   const selectSavedFood = useCallback(
     (food: SavedFoodDTO | null) => {
       pendingSavedFoodLookup.current = null;
+      selectedSavedFoodRef.current = food;
       setSelectedSavedFood(food);
     },
-    [setSelectedSavedFood],
+    [selectedSavedFoodRef, setSelectedSavedFood],
   );
 
   return {
     suggestions,
     refreshSuggestions,
     handleSelectSuggestion,
+    handleComposerTextChange,
     handleSubmit,
     selectSavedFood,
   };

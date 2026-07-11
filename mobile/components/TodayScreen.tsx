@@ -196,6 +196,7 @@ export function TodayScreen({
     inputRef,
     text,
     setText,
+    handleComposerTextChange,
     submitting,
     submitError,
     reachability,
@@ -372,7 +373,7 @@ export function TodayScreen({
         <TodayComposer
           inputRef={inputRef}
           text={text}
-          onChangeText={setText}
+          onChangeText={handleComposerTextChange}
           submitting={submitting}
           canSubmit={canSubmit}
           apiSession={apiSession}

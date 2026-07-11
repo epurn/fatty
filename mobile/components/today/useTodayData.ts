@@ -635,7 +635,7 @@ export function useTodayData({
   // Quick-add suggestion chips (FTY-341): focus-edge + post-submit fetches,
   // the deliberate prefill-on-tap, and the submit/typeahead wrappers that
   // join or supersede an in-flight saved-food hydration (FTY-053 skip path).
-  const { suggestions, refreshSuggestions, handleSelectSuggestion, handleSubmit, selectSavedFood } =
+  const { suggestions, refreshSuggestions, handleSelectSuggestion, handleComposerTextChange, handleSubmit, selectSavedFood } =
     useQuickAddSuggestions({
     apiSession,
     isActive,
@@ -721,7 +721,7 @@ export function useTodayData({
     sheetVisible,
     inputRef,
     text,
-    setText,
+    setText, handleComposerTextChange,
     submitting,
     submitError,
     reachability,
