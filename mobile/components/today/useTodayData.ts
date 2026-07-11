@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, type TextInput } from "react-native";
+import { type TextInput } from "react-native";
 
 import {
   type DerivedItem,
@@ -19,10 +19,7 @@ import {
   listTodayLogEventEntries as listTodayLogEventEntriesApi,
   type LogEventDTO,
 } from "@/api/logEvents";
-import {
-  searchSavedFoods as searchSavedFoodsApi,
-  type SavedFoodDTO,
-} from "@/api/savedFoods";
+import { searchSavedFoods as searchSavedFoodsApi } from "@/api/savedFoods";
 import { useCorrectionVisualReviewSeam } from "@/components/correction/visualReviewSeam";
 import {
   type OutboxStore,
@@ -36,21 +33,14 @@ import {
   reconcileEvents,
   sortByNewest,
 } from "@/state/today";
-import { useSubmitLog, type SubmitLogBridge } from "@/state/useSubmitLog";
-
 import {
-  CAPTURE_BARCODE_GRANTED_PRESET,
   CAPTURE_CONFIRM_PARSED_EVENT,
   CAPTURE_CONFIRM_PARSED_PRESET,
-  CAPTURE_LABEL_GUIDANCE_PRESET,
   useActiveCaptureVisualReviewPreset,
 } from "./captureVisualReview";
 import {
-  BARCODE_MANUAL_ENTRY_SEED,
   mergeServerItems,
   messageFor,
-  removeOptimisticEvent,
-  syntheticSavedFoodItem,
   type Phase,
 } from "./helpers";
 import { useCorrectionSheet } from "./useCorrectionSheet";
@@ -58,6 +48,8 @@ import { useDeleteEvent } from "./useDeleteEvent";
 import { useQuickAddSuggestions } from "./useQuickAddSuggestions";
 import { useEntryResolveBeats } from "./useEntryResolveBeats";
 import { useLabelProposal } from "./useLabelProposal";
+import { useTodayScanner } from "./useTodayScanner";
+import { useTodaySubmit } from "./useTodaySubmit";
 import "./visualReviewEntryRows";
 
 /** The (already-resolved) inputs the Today data hook needs from the screen. */
@@ -130,20 +122,10 @@ export function useTodayData({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // Visual-review capture seam (FTY-268): reads only under isE2EMode() (see
-  // captureVisualReview.ts) and is inert — always null — outside it, so a
-  // release build's initial scannerOpen/labelCaptureOpen are always false,
-  // unchanged from before this seam existed.
+  // captureVisualReview.ts) and is inert — always null — outside it. It seeds
+  // the scanner/label-capture initial open state (in useTodayScanner) and the
+  // confirm-parsed proposal below.
   const activeCapturePreset = useActiveCaptureVisualReviewPreset();
-  const [scannerOpen, setScannerOpen] = useState(
-    () => activeCapturePreset === CAPTURE_BARCODE_GRANTED_PRESET,
-  );
-  const [labelCaptureOpen, setLabelCaptureOpen] = useState(
-    () => activeCapturePreset === CAPTURE_LABEL_GUIDANCE_PRESET,
-  );
-  // Saved food selected from the typeahead bar (FTY-053). When set, pressing
-  // "Add" creates the log event AND immediately adds a synthetic resolved item
-  // with the saved food's nutrition, skipping the estimator wait.
-  const [selectedSavedFood, setSelectedSavedFood] = useState<SavedFoodDTO | null>(null);
   // Daily summary: intake, macros, target, exercise burn (FTY-075).
   const [summary, setSummary] = useState<DailySummaryDTO | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -187,85 +169,10 @@ export function useTodayData({
     setSummaryError,
   });
 
-  // The submit machine reads the latest selected saved food at submit time, and
-  // each in-flight submit stashes its saved food by optimistic id so the right
-  // one is re-keyed on success / restored on a server-error rollback. The ref is
-  // synced in an effect (never during render) per the project's ref convention.
-  const selectedSavedFoodRef = useRef<SavedFoodDTO | null>(null);
-  useEffect(() => {
-    selectedSavedFoodRef.current = selectedSavedFood;
-  });
-  const pendingSavedFoodById = useRef(new Map<string, SavedFoodDTO | null>());
-
-  // Quick-add suggestions refresh (FTY-341), called from the submit-success path
-  // below. Held behind a ref so the memoized submit bridge never re-creates.
-  const refreshSuggestionsRef = useRef<() => void>(() => {});
-
-  // Today's optimistic-timeline operations, handed to the shared submit machine
-  // (FTY-147). The machine owns create/optimistic/offline/rollback; the
-  // saved-food synthetic item (FTY-053) stays here, behind these callbacks.
-  const submitBridge = useMemo<SubmitLogBridge>(
-    () => ({
-      insertOptimistic(optimistic) {
-        setEvents((prev) => sortByNewest([optimistic, ...prev]));
-        const savedFood = selectedSavedFoodRef.current;
-        pendingSavedFoodById.current.set(optimistic.id, savedFood);
-        // A selected saved food carries resolved nutrition immediately — add a
-        // synthetic resolved item so the estimator is bypassed for this entry.
-        if (savedFood && apiSession) {
-          const syntheticItem = syntheticSavedFoodItem(
-            savedFood,
-            optimistic.id,
-            apiSession.userId,
-          );
-          setItemsByEvent((prev) => ({ ...prev, [optimistic.id]: [syntheticItem] }));
-        }
-        setSelectedSavedFood(null);
-      },
-      reconcileOptimistic(optimisticId, server) {
-        setEvents((prev) =>
-          sortByNewest(
-            prev.map((event) => (event.id === optimisticId ? server : event)),
-          ),
-        );
-        setItemsByEvent((prev) => {
-          const items = prev[optimisticId];
-          if (!items) return prev;
-          const updated = items.map((item) => ({
-            ...item,
-            log_event_id: server.id,
-          }));
-          const { [optimisticId]: _removed, ...rest } = prev;
-          return { ...rest, [server.id]: updated };
-        });
-        pendingSavedFoodById.current.delete(optimisticId);
-        // Refresh quick-add suggestions (FTY-341): the rank just changed.
-        refreshSuggestionsRef.current();
-      },
-      rollbackOptimistic(optimisticId) {
-        removeOptimisticEvent(setEvents, setItemsByEvent, optimisticId);
-        // Restore the saved-food association so retry is one tap (server error).
-        const savedFood = pendingSavedFoodById.current.get(optimisticId) ?? null;
-        pendingSavedFoodById.current.delete(optimisticId);
-        if (savedFood) setSelectedSavedFood(savedFood);
-      },
-      discardOptimistic(optimisticId) {
-        // Unreachable: the capture is kept as an offline row, not restored to the
-        // composer — so the saved-food association is dropped, not restored.
-        removeOptimisticEvent(setEvents, setItemsByEvent, optimisticId);
-        pendingSavedFoodById.current.delete(optimisticId);
-      },
-      acceptDrained(_idempotencyKey, event) {
-        // A drained offline capture folds into the normal flow: insert the real
-        // server event (deduped by id) and let polling reconcile it to terminal.
-        setEvents((prev) =>
-          sortByNewest([event, ...prev.filter((e) => e.id !== event.id)]),
-        );
-      },
-    }),
-    [apiSession],
-  );
-
+  // The submit-bridge (FTY-053/147, extracted in FTY-352): the saved-food
+  // selection glue plus the shared submit machine (create / optimistic-insert /
+  // offline / rollback). It writes through Today's `setEvents`/`setItemsByEvent`
+  // and re-exposes the submit surface unchanged.
   const {
     text,
     setText,
@@ -277,14 +184,43 @@ export function useTodayData({
     reachability,
     offlineEntries,
     queuedCount,
-  } = useSubmitLog({
-    session: apiSession,
-    bridge: submitBridge,
+    setSelectedSavedFood,
+    selectedSavedFoodRef,
+    refreshSuggestionsRef,
+  } = useTodaySubmit({
+    apiSession,
+    setEvents,
+    setItemsByEvent,
     create,
     outboxStore,
     retryIntervalMs,
     generateKey,
     now,
+  });
+
+  // The barcode-scanner / label-capture modals, the barcode-scan submit
+  // (FTY-063), and the "type it instead" composer fallback (FTY-194) live in a
+  // focused sub-hook (extracted in FTY-352); `useTodayData` re-exposes them.
+  const {
+    scannerOpen,
+    setScannerOpen,
+    labelCaptureOpen,
+    setLabelCaptureOpen,
+    handleBarcodeScanned,
+    handleManualEntry,
+    focusComposerAfterScanner,
+  } = useTodayScanner({
+    apiSession,
+    activeCapturePreset,
+    submitting,
+    create,
+    text,
+    setText,
+    setSubmitting,
+    setSubmitError,
+    setEvents,
+    tempIdRef: tempId,
+    inputRef,
   });
 
   // User-initiated refresh: show the loading state, then bump the reload key so
@@ -374,80 +310,6 @@ export function useTodayData({
     phase,
     itemsByEvent,
   );
-
-  // Barcode scan entry point (FTY-063). Mirrors the text-composer submit flow:
-  // dismiss the scanner, show the barcode as a pending optimistic entry, then
-  // reconcile with the server. Rolls back cleanly on failure.
-  const handleBarcodeScanned = useCallback(
-    async (barcode: string) => {
-      setScannerOpen(false);
-      if (!apiSession || submitting) {
-        return;
-      }
-      const id = `${OPTIMISTIC_ID_PREFIX}${tempId.current++}`;
-      const optimistic = optimisticLogEvent({
-        id,
-        userId: apiSession.userId,
-        rawText: barcode,
-        createdAt: new Date().toISOString(),
-      });
-      setEvents((prev) => sortByNewest([optimistic, ...prev]));
-      setSubmitting(true);
-      setSubmitError(null);
-      try {
-        const created = await create(apiSession, barcode);
-        setEvents((prev) =>
-          sortByNewest(
-            prev.map((event) => (event.id === id ? created : event)),
-          ),
-        );
-      } catch (error) {
-        setEvents((prev) => prev.filter((event) => event.id !== id));
-        setSubmitError(messageFor(error, "save"));
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [apiSession, submitting, create, setSubmitting, setSubmitError],
-  );
-
-  // "Type it instead" from the scanner (FTY-194). The barcode surface must never
-  // dead-end: dismiss the scanner and land the user in a *pre-filled*, focused
-  // composer so a failed/unsupported scan flows straight into natural-language
-  // logging (design §3: "Barcode not found → fall back to the NL composer
-  // (pre-filled)"). The camera carries no scan data, so we seed a packaged-food
-  // starter the user completes — never a fabricated number, and it counts nothing
-  // until submitted. Anything the user had already typed is preserved, not
-  // clobbered; only an empty composer is seeded.
-  //
-  // The scanner lives in a full-screen Modal that owns the keyboard/responder
-  // while it is mounted, so focusing the composer synchronously — before the
-  // dismissal has committed — is swallowed and the keyboard never rises. Record
-  // the intent to focus and flush it once the dismissal has actually committed
-  // (see `focusComposerAfterScanner`), so the fallback lands in a genuinely
-  // *focused* composer rather than only a pre-filled one.
-  const pendingComposerFocus = useRef(false);
-  const handleManualEntry = useCallback(() => {
-    if (text.trim() === "") setText(BARCODE_MANUAL_ENTRY_SEED);
-    pendingComposerFocus.current = true;
-    setScannerOpen(false);
-  }, [setText, text]);
-
-  // Flush a pending composer focus once the scanner Modal has actually dismissed.
-  // On iOS this is driven by the Modal's `onDismiss`, which fires only after the
-  // slide-out animation has fully committed and the composer can take the
-  // responder. Android has no `onDismiss`, but the composer becomes focusable as
-  // soon as the Modal unmounts, so the close effect below flushes it there.
-  const focusComposerAfterScanner = useCallback(() => {
-    if (!pendingComposerFocus.current) return;
-    pendingComposerFocus.current = false;
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    if (Platform.OS === "ios") return; // iOS flushes from the Modal's onDismiss.
-    if (!scannerOpen) focusComposerAfterScanner();
-  }, [scannerOpen, focusComposerAfterScanner]);
 
   // Label-capture proposal flow (FTY-064 + FTY-196/197): a legible upload lands
   // as an uncounted proposal the user confirms/adjusts before it counts.
