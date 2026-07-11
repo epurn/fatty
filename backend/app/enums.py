@@ -102,7 +102,7 @@ class TargetSource(StrEnum):
     """Provenance of an effective target value (FTY-095).
 
     Every target the read-model exposes carries this flag so a consumer can
-    honestly distinguish a number Fatty derived from the user's goal + metrics
+    honestly distinguish a number Slacks derived from the user's goal + metrics
     from one the user set by hand:
 
     - :attr:`DERIVED` — the value comes from the deterministic calculator
@@ -235,7 +235,7 @@ class DerivedItemStatus(StrEnum):
 
     :attr:`PROPOSED` (FTY-196) is a costed-but-**unconfirmed** food item: a legible
     nutrition-label parse holds its computed calories/macros in this state instead
-    of :attr:`RESOLVED`, because "OCR is fallible — Fatty never silently trusts a
+    of :attr:`RESOLVED`, because "OCR is fallible — Slacks never silently trusts a
     fallible parse" (``docs/design-philosophy.md``). A ``proposed`` item is excluded
     from every finalized-state read **by construction** (the daily-summary filter
     requires :attr:`RESOLVED`, see ``docs/contracts/daily-summary.md``), so it never

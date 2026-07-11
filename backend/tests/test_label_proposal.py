@@ -2,7 +2,7 @@
 
 A legible nutrition-label upload now lands as an **uncounted proposal** — a
 ``proposed`` ``derived_food_items`` row that does **not** count toward the day's
-totals until the user confirms it, because "OCR is fallible — Fatty never silently
+totals until the user confirms it, because "OCR is fallible — Slacks never silently
 trusts a fallible parse" (``docs/design-philosophy.md``). These tests exercise the
 backend half of that gate across the trust boundary:
 
@@ -21,7 +21,7 @@ backend half of that gate across the trust boundary:
 The label processor seam is a double backed by a network-free ``FakeProvider`` (no
 live model), mirroring ``test_label_upload_endpoint.py``. A Postgres-parity test
 exercises the same proposal → confirm → counted flow against the production
-datastore when ``FATTY_TEST_DATABASE_URL`` is set.
+datastore when ``SLACKS_TEST_DATABASE_URL`` is set.
 """
 
 from __future__ import annotations
@@ -554,7 +554,7 @@ def test_proposed_then_confirmed_flow_on_postgres(pg_engine: Engine) -> None:
     (``docs/design-philosophy.md``): the ``proposed`` status value persists on the
     production ``VARCHAR`` column (no schema migration — see :class:`DerivedItemStatus`),
     the finalized-state filter excludes it by construction, and confirming it flips
-    ``proposed → resolved`` so it counts. Skips when ``FATTY_TEST_DATABASE_URL`` is unset.
+    ``proposed → resolved`` so it counts. Skips when ``SLACKS_TEST_DATABASE_URL`` is unset.
     """
 
     upgrade(pg_engine, "head")

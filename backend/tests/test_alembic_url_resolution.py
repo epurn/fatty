@@ -24,8 +24,8 @@ from app import settings as settings_module
 from app.settings import Settings
 from tests.conftest import alembic_config
 
-_BARE_POSTGRES_URL = "postgresql://fatty:fatty@db:5432/fatty"
-_QUALIFIED_POSTGRES_URL = "postgresql+psycopg://fatty:fatty@db:5432/fatty"
+_BARE_POSTGRES_URL = "postgresql://slacks:slacks@db:5432/slacks"
+_QUALIFIED_POSTGRES_URL = "postgresql+psycopg://slacks:slacks@db:5432/slacks"
 _SQLITE_URL = "sqlite:///./untouched.db"
 
 

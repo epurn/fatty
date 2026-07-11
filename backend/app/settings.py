@@ -14,15 +14,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, computed_field, model_validator
 
-#: Environment variables are read with this prefix, e.g. ``FATTY_LOG_LEVEL``.
-ENV_PREFIX = "FATTY_"
+#: Environment variables are read with this prefix, e.g. ``SLACKS_LOG_LEVEL``.
+ENV_PREFIX = "SLACKS_"
 
 Environment = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 EstimatorClarifyMode = Literal["estimate_first", "balanced", "strict"]
 
 #: Placeholder auth secret used for local development/tests only. Production must
-#: override ``FATTY_AUTH_SECRET`` with a real secret; the validator below refuses
+#: override ``SLACKS_AUTH_SECRET`` with a real secret; the validator below refuses
 #: to start a production app while this default is in place.
 DEV_AUTH_SECRET = "dev-insecure-change-me"  # noqa: S105 (not a real credential)
 DEFAULT_ESTIMATOR_MODEL_PRIOR_CONFIDENCE_FLOOR = 0.6
@@ -38,20 +38,22 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    app_name: str = Field(default="fatty-backend", min_length=1)
+    app_name: str = Field(default="slacks-backend", min_length=1)
     environment: Environment = "development"
     log_level: LogLevel = "INFO"
     # Bind to loopback by default; deployments (e.g. Docker Compose) override
-    # FATTY_HOST to expose the service. Avoids binding all interfaces silently.
+    # SLACKS_HOST to expose the service. Avoids binding all interfaces silently.
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=8000, ge=1, le=65535)
     # Service URLs. Defaults target a developer's localhost; Docker Compose
     # overrides them to the compose service hostnames (see repo-root
-    # ``.env.example``). These FATTY_-prefixed names are part of the FTY-011
+    # ``.env.example``). These SLACKS_-prefixed names are part of the FTY-011
     # local-infra env-var contract. ``database_url`` is reserved for the later
     # database story and is not consumed yet; ``redis_url`` is the Celery
     # worker's broker and result backend.
-    database_url: str = Field(default="postgresql://fatty:fatty@localhost:5432/fatty", min_length=1)
+    database_url: str = Field(
+        default="postgresql://slacks:slacks@localhost:5432/slacks", min_length=1
+    )
     redis_url: str = Field(default="redis://localhost:6379/0", min_length=1)
     # Estimator clarify policy (FTY-299). These fields are typed plumbing only;
     # downstream estimator stories consume them without reading ad hoc env vars.
@@ -68,7 +70,7 @@ class Settings(BaseModel):
         le=10,
     )
     # Auth (FTY-020). The signing secret for local-auth bearer tokens is read
-    # from FATTY_AUTH_SECRET and is a SecretStr so it is never rendered in repr,
+    # from SLACKS_AUTH_SECRET and is a SecretStr so it is never rendered in repr,
     # logs, or tracebacks. Production must override the dev placeholder.
     auth_secret: SecretStr = Field(default=SecretStr(DEV_AUTH_SECRET))
     # Bearer-token lifetime in seconds (default 7 days for a self-host session).
@@ -97,7 +99,7 @@ class Settings(BaseModel):
     # to allow (fail-open) or deny (fail-closed, 503) the request.
     # Default: fail-open when environment != "production", fail-closed in
     # production — closing the silent-bypass window without breaking dev/self-host
-    # ergonomics.  Set FATTY_RATE_LIMIT_FAIL_OPEN_OVERRIDE=true to force
+    # ergonomics.  Set SLACKS_RATE_LIMIT_FAIL_OPEN_OVERRIDE=true to force
     # fail-open regardless of environment (e.g. a production self-host that
     # prefers availability) or =false to force fail-closed in non-production.
     rate_limit_fail_open_override: bool | None = Field(default=None)
@@ -118,14 +120,14 @@ class Settings(BaseModel):
             self.environment == "production"
             and self.auth_secret.get_secret_value() == DEV_AUTH_SECRET
         ):
-            raise ValueError("FATTY_AUTH_SECRET must be set to a non-default value in production")
+            raise ValueError("SLACKS_AUTH_SECRET must be set to a non-default value in production")
         return self
 
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     """Build :class:`Settings` from environment variables.
 
-    Only ``FATTY_``-prefixed variables matching a known field are read; missing
+    Only ``SLACKS_``-prefixed variables matching a known field are read; missing
     values fall back to defaults and invalid values raise ``ValidationError``.
     """
 

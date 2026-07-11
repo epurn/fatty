@@ -2,7 +2,7 @@
 
 FTY-011 wires a Celery worker into the local Docker Compose stack; FTY-040 adds
 the first task. This module defines the Celery application, points its broker and
-result backend at Redis (``FATTY_REDIS_URL``), and lists the task modules Celery
+result backend at Redis (``SLACKS_REDIS_URL``), and lists the task modules Celery
 imports on worker start. ``celery -A app.worker:celery_app worker`` is the
 entrypoint the compose worker service runs.
 
@@ -32,7 +32,7 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
 
     settings = settings or load_settings()
     application: Celery = Celery(
-        "fatty",
+        "slacks",
         broker=settings.redis_url,
         backend=settings.redis_url,
         include=TASK_MODULES,

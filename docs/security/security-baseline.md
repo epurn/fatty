@@ -78,11 +78,11 @@ This project uses the following as design references:
   *(v1: `POST /api/auth/login` is throttled per source IP and per account (hashed
   email); `POST /api/auth/register` is throttled per source IP. Backed by the
   existing Redis so the limit holds across worker processes. Thresholds are
-  configurable via `FATTY_RATE_LIMIT_*` env vars. The limiter runs before the
+  configurable via `SLACKS_RATE_LIMIT_*` env vars. The limiter runs before the
   credential check so a throttled request pays no hash/DB cost and equalized timing
   is preserved. Per-account keys use sha256(email) so no raw PII is stored in Redis.
   The source IP is the real TCP peer by default; `X-Forwarded-For` is trusted only
-  behind exactly one known proxy (`FATTY_RATE_LIMIT_TRUSTED_PROXY=true`) and then
+  behind exactly one known proxy (`SLACKS_RATE_LIMIT_TRUSTED_PROXY=true`) and then
   read rightmost so a client-spoofed hop cannot bypass the per-IP limit. FTY-118.)*
   *(Fail-mode — FTY-138: when the limiter raises (e.g. Redis unavailable) the
   effective fail-mode is environment-defaulted: **fail-open** (allow + warn log) in
@@ -93,7 +93,7 @@ This project uses the following as design references:
   recovers. The `503` response is intentionally transient so the mobile
   reconnect/retry path backs off and retries rather than treating it as a
   credential failure. The fail-mode can be forced in either direction via
-  `FATTY_RATE_LIMIT_FAIL_OPEN_OVERRIDE=true|false`, independent of environment
+  `SLACKS_RATE_LIMIT_FAIL_OPEN_OVERRIDE=true|false`, independent of environment
   (e.g. a production self-host that prefers availability can opt back into
   fail-open). No new PII is added to logs in either branch.)*
 - Enforce object-level authorization on every user-owned record. *(v1: every

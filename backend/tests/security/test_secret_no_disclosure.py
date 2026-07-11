@@ -272,7 +272,7 @@ def test_exc_info_with_secret_is_redacted() -> None:
         # ISO-8601 timestamp
         "2024-01-15T10:30:00Z",
         # File path
-        "/home/user/data/fatty/logs/app.log",
+        "/home/user/data/slacks/logs/app.log",
         # Ordinary sentence
         "User logged a chicken sandwich for lunch",
         # Bare integer

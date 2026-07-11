@@ -2,7 +2,7 @@
 
 A token is an HMAC-SHA256-signed claim ``{"sub": <user id>, "iat", "exp"}``,
 encoded ``<payload_b64url>.<signature_b64url>``. The signing secret is read from
-the environment (``FATTY_AUTH_SECRET``) and never embedded in the token or
+the environment (``SLACKS_AUTH_SECRET``) and never embedded in the token or
 logged. Tokens are stateless (no session table) which keeps this slice minimal;
 a future hosted-auth story can introduce server-side sessions/revocation.
 

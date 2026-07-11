@@ -117,7 +117,7 @@ part of any response.
   authentication credentials.
 - Password hashes are strong (scrypt, salted, self-describing) and live only in
   `auth_identities`; they are never logged or returned.
-- The token signing secret (`FATTY_AUTH_SECRET`) is read from the environment
+- The token signing secret (`SLACKS_AUTH_SECRET`) is read from the environment
   only and never logged; a production app refuses to start on the dev default.
 - Retention (per `docs/security/data-retention.md`): account data retained until
   account deletion; profile data retained until edited or account deletion.
@@ -132,8 +132,8 @@ part of any response.
 | `404` | Accessing a profile the caller does not own (fail closed). |
 | `409` | Registering an email that already has a local identity. |
 | `422` | Malformed body, invalid email, weak password, out-of-range metric, unknown timezone, unknown field. |
-| `429` | Too many requests. `/api/auth/login` enforces a per-source-IP limit and a per-account (hashed email) limit; `/api/auth/register` enforces a per-source-IP limit. The response carries a `Retry-After` header (integer seconds until the window resets). Thresholds are configurable via `FATTY_RATE_LIMIT_*` env vars (FTY-118). |
-| `503` | Rate-limit backend (Redis) is unavailable and the effective fail-mode is fail-closed, so `/api/auth/login` and `/api/auth/register` deny rather than serve unprotected. Transient; carries a `Retry-After` header (integer seconds). Fail-closed is the default in `production`; `development`/`test` default to fail-open (serve through the outage), and `FATTY_RATE_LIMIT_FAIL_OPEN_OVERRIDE=true\|false` forces either mode (FTY-138). |
+| `429` | Too many requests. `/api/auth/login` enforces a per-source-IP limit and a per-account (hashed email) limit; `/api/auth/register` enforces a per-source-IP limit. The response carries a `Retry-After` header (integer seconds until the window resets). Thresholds are configurable via `SLACKS_RATE_LIMIT_*` env vars (FTY-118). |
+| `503` | Rate-limit backend (Redis) is unavailable and the effective fail-mode is fail-closed, so `/api/auth/login` and `/api/auth/register` deny rather than serve unprotected. Transient; carries a `Retry-After` header (integer seconds). Fail-closed is the default in `production`; `development`/`test` default to fail-open (serve through the outage), and `SLACKS_RATE_LIMIT_FAIL_OPEN_OVERRIDE=true\|false` forces either mode (FTY-138). |
 
 Login returns the same `401` for an unknown email and a wrong password so the
 API does not reveal whether an account exists.

@@ -10,7 +10,7 @@ answer (service) → re-estimate → completed — against a live Postgres engin
 with fixed fixtures and the network-free :class:`FakeProvider`.
 
 Opt-in like the other Postgres guards: the ``pg_engine`` fixture skips when
-``FATTY_TEST_DATABASE_URL`` is unset, so the SQLite-only path stays green
+``SLACKS_TEST_DATABASE_URL`` is unset, so the SQLite-only path stays green
 without a running Postgres; CI wires a real Postgres (FTY-144).
 """
 

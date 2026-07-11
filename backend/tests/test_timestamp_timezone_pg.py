@@ -20,7 +20,7 @@ enforces end-to-end:
    half-hour-offset zone buckets by its own local midnight.
 
 It is opt-in: the ``pg_engine`` fixture skips the test when
-``FATTY_TEST_DATABASE_URL`` is unset, so a fresh checkout and the SQLite-only
+``SLACKS_TEST_DATABASE_URL`` is unset, so a fresh checkout and the SQLite-only
 local/CI path stay green without a running Postgres (CI wires the env var against
 a real Postgres service, FTY-144).
 """

@@ -391,7 +391,7 @@ def get_label_proposal(
 
     A legible label parse lands as an **uncounted proposal** (a ``proposed`` food
     item that does not count toward totals) rather than a counted ``resolved`` item,
-    because "OCR is fallible — Fatty never silently trusts a fallible parse". This
+    because "OCR is fallible — Slacks never silently trusts a fallible parse". This
     read backs the mobile confirm sheet (FTY-197): it returns the parsed food values
     plus their ``user_label`` ``source`` descriptor.
 

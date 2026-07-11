@@ -36,7 +36,7 @@ def test_throwaway_credentials_are_deterministic_and_valid() -> None:
     # Deterministic email+password → the smoke reuses one throwaway account
     # (login-first) instead of registering a fresh one each run and tripping the
     # register rate limiter.
-    assert email_a == email_b == "dogfood-smoke@fatty.local"
+    assert email_a == email_b == "dogfood-smoke@slacks.local"
     assert password_a == password_b
     # Fixed non-secret password that satisfies the register bounds (8–128).
     assert 8 <= len(password_a) <= 128

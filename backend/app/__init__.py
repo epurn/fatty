@@ -1,1 +1,1 @@
-"""Fatty backend FastAPI application package."""
+"""Slacks backend FastAPI application package."""

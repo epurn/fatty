@@ -106,7 +106,7 @@ PER_ITEM_ABSURD_KCAL = 2000.0
 #: The deterministic throwaway account, reused across runs (login-first) so the
 #: smoke registers at most once per stack. A dedicated fixture identity, never a
 #: real user. The password satisfies the register bounds (8–128 chars).
-_FIXTURE_EMAIL = "dogfood-smoke@fatty.local"
+_FIXTURE_EMAIL = "dogfood-smoke@slacks.local"
 _FIXTURE_PASSWORD = "dogfood-smoke-pw"  # noqa: S105 — non-secret local fixture
 
 
@@ -346,7 +346,7 @@ def _assess_all(
 def run() -> int:
     """Run the live food dogfood smoke; return a shell exit code."""
 
-    _emit("Fatty local v1 food dogfood smoke (FTY-256)")
+    _emit("Slacks local v1 food dogfood smoke (FTY-256)")
     _emit("=" * 46)
     _emit("Live-local API smoke — NOT the hermetic E2E fixture mode.")
 

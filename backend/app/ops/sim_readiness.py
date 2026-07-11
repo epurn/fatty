@@ -1,6 +1,6 @@
 """Local v1 simulator-readiness smoke (FTY-250).
 
-Operator command run **before** testing Fatty in an iOS simulator. It verifies
+Operator command run **before** testing Slacks in an iOS simulator. It verifies
 the local Docker Compose stack is *coherent* — backend images built from one
 checkout, Alembic at the code head, API / worker / source health green — and
 prints the exact simulator connect URL derived from ``.env`` ``API_PORT``, so a
@@ -75,10 +75,10 @@ _SECRET_KEY_MARKERS: tuple[str, ...] = (
 #: Non-secret env vars the report surfaces (each still passed through redaction as
 #: a defensive backstop). Deliberately excludes DSNs, which embed a password.
 _REPORTED_ENV_KEYS: tuple[str, ...] = (
-    "FATTY_ENVIRONMENT",
-    "FATTY_LLM_PROVIDER",
-    "FATTY_SEARCH_PROVIDER",
-    "FATTY_OFF_ENABLED",
+    "SLACKS_ENVIRONMENT",
+    "SLACKS_LLM_PROVIDER",
+    "SLACKS_SEARCH_PROVIDER",
+    "SLACKS_OFF_ENABLED",
 )
 
 _REDACTED = "«redacted»"
@@ -378,8 +378,8 @@ def query_db_alembic_version(env: Mapping[str, str]) -> str | None:
     (stack down, table missing, psql error).
     """
 
-    user = env.get("POSTGRES_USER", "fatty")
-    database = env.get("POSTGRES_DB", "fatty")
+    user = env.get("POSTGRES_USER", "slacks")
+    database = env.get("POSTGRES_DB", "slacks")
     result = _run_compose(
         [
             "exec",
@@ -482,7 +482,7 @@ def _probe_and_report_health(sim_url: str) -> bool:
 def run() -> int:
     """Assemble and print the readiness report; return a shell exit code."""
 
-    _emit("Fatty local v1 simulator-readiness smoke (FTY-250)")
+    _emit("Slacks local v1 simulator-readiness smoke (FTY-250)")
     _emit("=" * 52)
 
     env_text = read_env_file()

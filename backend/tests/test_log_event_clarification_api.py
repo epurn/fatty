@@ -2,7 +2,7 @@
 
 The estimator persists a `needs_clarification` event's questions (FTY-042); this
 read path exposes the **open** ones to the owning client so the mobile clarify
-sheet (FTY-153) can show Fatty's real question with its stable id and quick-pick
+sheet (FTY-153) can show Slacks's real question with its stable id and quick-pick
 options. The tests prove: ordered exposure of the `{id, text, options}` shape,
 the status gate (only a `needs_clarification` event serves questions), the
 answered-question exclusion, the empty (no-rows) case, fail-closed

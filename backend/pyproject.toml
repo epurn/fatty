@@ -1,7 +1,7 @@
 [project]
-name = "fatty-backend"
+name = "slacks-backend"
 version = "1.0.0"
-description = "Fatty backend FastAPI application skeleton."
+description = "Slacks backend FastAPI application skeleton."
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139.0",

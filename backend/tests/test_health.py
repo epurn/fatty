@@ -95,8 +95,9 @@ def test_healthz_sources_reports_provider_capabilities(client: TestClient) -> No
     assert isinstance(fdc["available"], bool)
 
     # Official-source search (FTY-079/164) defaults to the keyless local SearXNG
-    # backend, so with no FATTY_SEARCH_* config it is enabled AND available with
-    # no API key (the Brave/none postures are proven in the adapter tests).
+    # backend, so with no search-provider override configured it is enabled AND
+    # available with no API key (the Brave/none postures are proven in the
+    # adapter tests).
     # The descriptor carries no secret.
     official = sources["official_source"]
     assert official["source_type"] == "official_source"
