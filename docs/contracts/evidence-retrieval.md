@@ -71,10 +71,15 @@ re-ask; it is never written to ledger records, traces, assumptions, source refs,
 persisted rows, or the model-prior prompt, and is never used to build a search
 query or fetch URL. That last rule is enforced deterministically, not assumed of
 the model: the session retains the token set of every staged excerpt, and the
-resolver bridge drops any revised-identity word carrying a token seen only in
-staged evidence text (never in the user's own entry/answers) before the revised
-hypothesis may drive a re-query, fetch, or persisted item field — an echo of the
-staged surface cannot reach an outbound query even if the provider returns it.
+resolver bridge drops any revised-identity word carrying a staged-excerpt token
+that no sanitized surface of the run authorized — the user's own entry/answers,
+or the ledger's sanitized source-stated descriptors (an extraction identity
+already reduced through identity sanitization, a trusted database row
+description) — before the revised hypothesis may drive a re-query, fetch, or
+persisted item field. A source-stated identity correction the descriptor also
+carries (`PC` → `Presidents Choice`) therefore survives to drive the bounded
+re-query, while an unvetted excerpt payload cannot reach an outbound query even
+if the provider returns it.
 USDA row acceptance joins the loop the same way: rows the FTY-254 ranked
 compatibility gate rejects are recorded as bounded `rejected_incompatible_row`
 ledger records (global row description + ref, no user data) and may trigger the

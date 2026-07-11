@@ -949,3 +949,107 @@ def test_requery_never_echoes_staged_evidence_text_into_search(
         assert all(sentinel not in url for url in fetcher.fetched)
         assert sentinel not in persisted
         assert sentinel not in official_provider.prompts[-1]
+
+
+def test_source_backed_identity_revision_survives_echo_filter(
+    client: TestClient, session: Session
+) -> None:
+    """An ambiguous read whose staged text itself contains the corrected
+    brand/product words can still revise the identity: tokens the sanitized
+    ledger descriptor stated (``product=presidents choice dill pickle hummus``)
+    are source-supported, so the revision survives the echo filter and drives
+    the one bounded re-query — while an excerpt payload the descriptor never
+    stated is still filtered from the same revision before any egress."""
+
+    page_sentinel = "RAW-PAGE-BODY sk-pagebody654"
+    item: dict[str, Any] = {
+        "type": "food",
+        "name": "dill hummus",
+        "brand": "PC",
+        "quantity_text": "1 tbsp",
+        "unit": "tbsp",
+        "amount": 1,
+    }
+    # The re-ask corrects the identity using words that appear ONLY in the
+    # staged page text (never in the user's entry) — plus one unvetted excerpt
+    # payload word that no sanitized descriptor stated.
+    revised_item: dict[str, Any] = {
+        **item,
+        "name": "dill pickle hummus sk-pagebody654",
+        "brand": "Presidents Choice",
+    }
+    parse_responses: list[dict[str, Any] | LLMError] = [
+        _parsed_response([item], confidence=0.9) for _ in range(SELF_CONSISTENCY_FIRST_WINDOW)
+    ]
+    parse_responses.append(_parsed_response([revised_item], confidence=0.9))
+    parse_provider = FakeProvider(responses=parse_responses)
+    official_provider = FakeProvider(
+        responses=[
+            # First page read: schema-valid transcription of the real identity,
+            # below the confidence threshold — an ambiguous read whose sanitized
+            # descriptor states the corrected identity words.
+            {"disposition": "resolved", "confidence": 0.2, "facts": _HUMMUS_FACTS},
+            # Second read after the revised re-query: confident and accepted.
+            {"disposition": "resolved", "confidence": 0.95, "facts": _HUMMUS_FACTS},
+        ]
+    )
+    search = ScriptedSearchProvider(
+        {
+            "dill hummus PC": _success(_HUMMUS_URL),
+            "dill pickle hummus Presidents Choice": _success(_HUMMUS_URL),
+        }
+    )
+    fetcher = RecordingFetcher(f"Presidents Choice Dill Pickle Hummus {page_sentinel}")
+    pipeline = _web_pipeline(session, parse_provider, official_provider, search, fetcher)
+    user_id, event_id = _seed_event(
+        client, "fty326-source-backed-revision@example.com", f"PC dill hummus {_RAW_SENTINEL}"
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.event_status is LogEventStatus.COMPLETED
+    assert _questions(session, event_id) == []
+    # The ambiguous read reached the session both ways: sanitized descriptor on
+    # the ledger, bounded staged text on the re-ask prompt.
+    requery_prompts = [prompt for prompt in parse_provider.prompts if "<evidence_status>" in prompt]
+    assert len(requery_prompts) == 1
+    assert "product=presidents choice dill pickle hummus" in requery_prompts[0]
+    assert page_sentinel in requery_prompts[0]
+
+    run = _run(session, event_id)
+    entries = _decisions(run)
+    # The source-backed revision survived the echo filter and drove the one
+    # bounded re-query with the descriptor-stated identity words...
+    assert _find(entries, tier="interpretation_session", outcome="requery_revised_identity")
+    assert "dill pickle hummus Presidents Choice" in search.queries
+    assert search.queries.index("dill pickle hummus Presidents Choice") > search.queries.index(
+        "dill hummus PC"
+    )
+    # ...and the revised query resolved the item from the official source.
+    evidence = _evidence(session, event_id)[0]
+    assert evidence.source_type == "official_source"
+    assert (
+        evidence.source_ref
+        == "official_source:https://source.example.com/products/pc-dill-pickle-hummus"
+    )
+    food = _foods(session, event_id)[0]
+    assert food.name == "dill pickle hummus"
+    assert food.calories == pytest.approx(40.0)
+    assert not _find(entries, tier="model_prior", outcome="accepted")
+
+    # The unvetted excerpt payload was still filtered out of the same revision:
+    # never in an outbound query/URL, never persisted. (The extraction prompts
+    # legitimately carry the fetched page text; egress/persisted surfaces do not.)
+    persisted = json.dumps(
+        {
+            "trace": run.trace,
+            "source_refs": run.source_refs,
+            "assumptions": run.assumptions,
+            "evidence_assumptions": evidence.assumptions,
+        }
+    )
+    for sentinel in ("RAW-PAGE-BODY", "sk-pagebody654", "pagebody654"):
+        assert all(sentinel not in query for query in search.queries)
+        assert all(sentinel not in url for url in fetcher.fetched)
+        assert sentinel not in persisted
+    assert _RAW_SENTINEL not in persisted

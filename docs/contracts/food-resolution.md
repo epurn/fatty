@@ -51,8 +51,12 @@ identity for a single retried lookup, or keep it (a deliberate miss). An
 unaccepted page/snippet read's own bounded FTY-314-framed text transiently
 reaches the re-interpretation prompt only (never ledger/trace/persisted/query/
 fetch surfaces — see `evidence-retrieval.md`), and a revised identity is
-deterministically echo-filtered against the staged excerpt tokens before it may
-drive any re-query or persistence. No schema/DTO/source/egress change.
+deterministically echo-filtered before it may drive any re-query or persistence:
+a staged-excerpt token survives only when the user's own words or a sanitized
+ledger descriptor (identity-sanitized extraction identity, trusted row
+description) authorized it, so a source-stated correction can revise the
+identity while an unvetted excerpt echo cannot. No schema/DTO/source/egress
+change.
 
 18 (FTY-348, contract only): the global FTY-324 interpretation-session semantics
 (the model-owned/deterministic-owned division of labour and the

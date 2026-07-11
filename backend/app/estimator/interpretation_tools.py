@@ -15,8 +15,9 @@ from collections.abc import Sequence
 from typing import Final
 
 from app.enums import CandidateType
+from app.estimator.decision_trace import MAX_TRACE_DESC_LEN, sanitize_trace_label
 from app.estimator.fdc import ProductFacts
-from app.estimator.interpretation import EvidenceRecord
+from app.estimator.interpretation import EvidenceRecord, InterpretationSession
 from app.estimator.pipeline import CandidateDraft, EstimationContext, StepError, StepFailed
 from app.estimator.searched_reference import StageEvidenceText
 from app.schemas.parse import ParsedCandidate
@@ -235,8 +236,30 @@ def _session_food_drafts(context: EstimationContext) -> tuple[CandidateDraft, ..
         items = session.result.items
     except RuntimeError:
         return ()
-    taint = session.evidence_echo_taint()
+    taint = session.evidence_echo_taint() - _descriptor_authorized_tokens(session)
     return tuple(_to_draft(item, taint) for item in items if item.type is CandidateType.FOOD)
+
+
+def _descriptor_authorized_tokens(session: InterpretationSession) -> frozenset[str]:
+    """Tokens a sanitized ledger descriptor stated — source-supported, not an echo.
+
+    The FTY-326 companion rule to the staged-excerpt taint: real page/snippet
+    text commonly contains exactly the identity words a legitimate revision
+    needs (``PC dill hummus`` → ``Presidents Choice Dill Pickle Hummus``), so a
+    token also stated through the ledger's sanitized ``source_desc`` channel — a
+    trusted database row description, or an extraction identity already reduced
+    through ``sanitized_identity`` — authorizes the revised identity word that
+    carries it. Descriptors are tokenized through the same egress sanitizer
+    :meth:`EvidenceRecord.as_label` renders with, so material redaction keeps
+    out of the model-facing prompt cannot authorize its own excerpt echo.
+    """
+
+    tokens: set[str] = set()
+    for record in session.evidence_ledger:
+        if record.source_desc:
+            desc = sanitize_trace_label(record.source_desc, max_len=MAX_TRACE_DESC_LEN)
+            tokens.update(_TAINT_TOKEN_RE.findall(desc.lower()))
+    return frozenset(tokens)
 
 
 def _to_draft(item: ParsedCandidate, taint: frozenset[str]) -> CandidateDraft:
@@ -245,8 +268,11 @@ def _to_draft(item: ParsedCandidate, taint: frozenset[str]) -> CandidateDraft:
     The session's hypothesis may legitimately absorb staged evidence text, but
     the resolver-side identity fields drive search queries, fetch-scoped
     lookups, and persisted item names — surfaces raw page/snippet text must
-    never reach. Words carrying a token seen only in staged excerpts are
-    dropped here, at the one bridge every tier reads through. ``quantity_text``
+    never reach. Words carrying a staged-excerpt token that neither the user's
+    own words nor a sanitized ledger ``source_desc`` descriptor authorized are
+    dropped here, at the one bridge every tier reads through — so a
+    source-backed identity revision survives while an unvetted excerpt echo
+    does not (:func:`_descriptor_authorized_tokens`). ``quantity_text``
     keeps digit-bearing words (a page-echoed number cannot name a product, and
     its egress path already drops digit tokens) so serving detail survives;
     ``barcode`` is strict — a barcode must be user-supplied, so a page-echoed

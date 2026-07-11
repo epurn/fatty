@@ -452,8 +452,8 @@ class InterpretationSession:
         re-interpretation call sees the staged excerpts, so its revised identity
         fields could echo them. Any staged-excerpt token the raw entry text and
         answered clarifications never contained is evidence-derived; the resolver
-        bridge drops identity words carrying one before the hypothesis may drive a
-        re-query or persistence. Empty until something is staged.
+        bridge drops identity words carrying one — unless a sanitized ledger
+        descriptor authorizes the token — before re-query or persistence.
         """
 
         if not self._staged_excerpt_tokens:
