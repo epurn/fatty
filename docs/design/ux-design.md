@@ -56,8 +56,15 @@ tracker**. The wedge is two things competitors don't do well together:
 - **Today's composer — directly beneath the hero — is a natural-language
   composer.** You describe the food; a saved-food typeahead surfaces reactively
   as you type. Barcode and label
-  capture sit alongside as SF Symbol affordances. (No proactive "recents" list in
-  v1.) The composer does **not** auto-raise the keyboard — Today is the
+  capture sit alongside as SF Symbol affordances. Above the composer, a quiet,
+  horizontally-scrollable **quick-add suggestion row** (FTY-340/341) shows the
+  handful of things you most plausibly want to log right now — time-aware, from
+  your own saved foods and history (the chips you see at 8am Tuesday are your
+  breakfasts, not last Saturday's takeaway). A tap prefills the composer with the
+  phrase and focuses it — one more tap to submit keeps logging deliberate; a
+  saved-food chip's submit skips the estimator (the saved snapshot applies
+  directly). When there is nothing to suggest, there is no row at all. The
+  composer does **not** auto-raise the keyboard — Today is the
   status-home; tapping the composer raises it (auto-focusing a dashboard is
   jarring; *Calm by default*).
 - **Post-submit, you stay on Today** — no automatic navigation (page changes are
@@ -70,6 +77,15 @@ tracker**. The wedge is two things competitors don't do well together:
   session" feed — the optimistic insert *is* the acknowledgement.
 - **Correction is a universal slide-up sheet** from any item (see §4a) — never a
   page change.
+- **Deletion is the standard iOS swipe-left-to-delete** on any server-backed
+  timeline row (a resolved item or a raw needs-a-detail / failed entry): a left
+  swipe reveals a single destructive **Delete** action, and tapping it soft-voids
+  the entry (the swipe reveal is the confirmation — no extra alert, per native
+  convention; there is no undo in v1). The row leaves the timeline immediately
+  (optimistic) and the day totals update in place; a failed delete restores the
+  row with a calm inline error, never a silent loss. VoiceOver users reach the
+  same action as a "Delete" custom action on the row. Tap still opens the
+  correction sheet — deletion never fights the tap.
 - **Missing details are asked inline, non-blocking.** When Slacks needs a detail to
   be accurate, the entry shows a gentle "needs a detail" affordance and is *not
   counted* in totals until answered. Slacks never fabricates a number.
@@ -318,6 +334,7 @@ unmistakable in a few expressive carriers (see the principle of that name).
 
 ## v2 / parked
 
-- A smart, context-aware food recommender on Today's composer (time-of-day /
-  patterns, Spotify-style) that replaces a naive recents list.
+- Per-chip management of the quick-add suggestion row (dismiss / pin), a
+  "see all" surface, and item-scoped clarification — follow-ups if dogfooding
+  wants them (the row itself shipped in FTY-340/341; see §3).
 - Smart "save this for next time?" suggestions in the correction sheet.

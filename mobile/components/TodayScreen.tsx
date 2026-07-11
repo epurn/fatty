@@ -17,6 +17,7 @@ import {
   type DerivedItem,
 } from "@/api/derivedItems";
 import { getDailySummary as getDailySummaryApi } from "@/api/dailySummary";
+import { getFoodSuggestions as getFoodSuggestionsApi } from "@/api/foodSuggestions";
 import { uploadLabelImage as uploadLabelImageApi } from "@/api/labelCapture";
 import {
   confirmLabelProposal as confirmLabelProposalApi,
@@ -25,6 +26,7 @@ import {
 import {
   answerClarification as answerClarificationApi,
   createLogEvent as createLogEventApi,
+  deleteLogEvent as deleteLogEventApi,
   getLogEventClarification as getLogEventClarificationApi,
   listTodayLogEvents as listTodayLogEventsApi,
   listTodayLogEventEntries as listTodayLogEventEntriesApi,
@@ -43,6 +45,7 @@ import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DailySummary } from "@/components/DailySummary";
 import { LabelCaptureScreen } from "@/components/LabelCaptureScreen";
 import { MacroTier } from "@/components/MacroTier";
+import { QuickAddChips } from "@/components/today/QuickAddChips";
 import { Timeline } from "@/components/today/Timeline";
 import { SignInRequired } from "@/components/today/SignInRequired";
 import { TodayComposer } from "@/components/today/TodayComposer";
@@ -84,6 +87,7 @@ export function TodayScreen({
   load = listTodayLogEventsApi,
   loadEntries = listTodayLogEventEntriesApi,
   create = createLogEventApi,
+  deleteEvent = deleteLogEventApi,
   getClarification = getLogEventClarificationApi,
   answerClarification = answerClarificationApi,
   editItem = editDerivedItemApi,
@@ -99,6 +103,7 @@ export function TodayScreen({
   getLabelProposal = getLabelProposalApi,
   confirmLabelProposal = confirmLabelProposalApi,
   getDailySummary = getDailySummaryApi,
+  getSuggestions = getFoodSuggestionsApi,
   outboxStore = fileOutboxStore,
   retryIntervalMs,
   generateKey = generateIdempotencyKey,
@@ -116,6 +121,8 @@ export function TodayScreen({
    */
   loadEntries?: typeof listTodayLogEventEntriesApi;
   create?: typeof createLogEventApi;
+  /** Injectable soft-void (delete) client for swipe-to-delete (FTY-322). */
+  deleteEvent?: typeof deleteLogEventApi;
   /** Injectable clarification-question read for the clarify sheet (FTY-153). */
   getClarification?: typeof getLogEventClarificationApi;
   /** Injectable clarification answer round-trip for the clarify sheet (FTY-170/175). */
@@ -149,6 +156,8 @@ export function TodayScreen({
   confirmLabelProposal?: typeof confirmLabelProposalApi;
   /** Injectable daily summary fetch for tests (FTY-075). */
   getDailySummary?: typeof getDailySummaryApi;
+  /** Injectable quick-add suggestions fetch for tests (FTY-341). */
+  getSuggestions?: typeof getFoodSuggestionsApi;
   /** Durable offline-outbox storage (FTY-104, harvested onto Today in FTY-147). */
   outboxStore?: OutboxStore;
   /** Reconnect-retry cadence for the outbox drain — injectable for tests. */
@@ -168,6 +177,7 @@ export function TodayScreen({
     apiSession,
     phase,
     loadError,
+    deleteError,
     itemsByEvent,
     displayEvents,
     offlineStateById,
@@ -186,11 +196,14 @@ export function TodayScreen({
     inputRef,
     text,
     setText,
+    handleComposerTextChange,
     submitting,
     submitError,
     reachability,
     queuedCount,
     setSelectedSavedFood,
+    suggestions,
+    handleSelectSuggestion,
     refresh,
     handleSubmit,
     handleBarcodeScanned,
@@ -206,12 +219,14 @@ export function TodayScreen({
     handleClarificationResolved,
     handleRetryFailed,
     handleEditFailedAsText,
+    handleDeleteEvent,
     handleItemChange,
   } = useTodayData({
     sessionOverride,
     load,
     loadEntries,
     create,
+    deleteEvent,
     getClarification,
     answerClarification,
     itemsOverride,
@@ -219,6 +234,8 @@ export function TodayScreen({
     pollIntervalMs,
     getLabelProposal,
     getDailySummary,
+    getSuggestions,
+    searchSavedFoods,
     outboxStore,
     retryIntervalMs,
     generateKey,
@@ -348,10 +365,15 @@ export function TodayScreen({
             the macro tier renders below the composer — reworking it is FTY-179. */}
         <DailySummary summary={summary} error={summaryError} onRetry={refresh} showMacros={false} />
 
+        {/* Quick-add suggestion chips (FTY-341): a calm, scrollable row of what
+            the user most plausibly wants to log now, above the composer. Renders
+            nothing when there is nothing to suggest — no empty shell. */}
+        <QuickAddChips suggestions={suggestions} onSelect={handleSelectSuggestion} />
+
         <TodayComposer
           inputRef={inputRef}
           text={text}
-          onChangeText={setText}
+          onChangeText={handleComposerTextChange}
           submitting={submitting}
           canSubmit={canSubmit}
           apiSession={apiSession}
@@ -388,8 +410,10 @@ export function TodayScreen({
           onOpenClarify={openClarifySheet}
           onRetryFailed={(event) => void handleRetryFailed(event)}
           onEditFailedAsText={handleEditFailedAsText}
+          onDeleteEvent={(event) => void handleDeleteEvent(event)}
           phase={phase}
           loadError={loadError}
+          deleteError={deleteError}
           onRetry={() => void refresh()}
         />
       </ScrollView>
