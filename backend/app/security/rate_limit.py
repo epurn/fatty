@@ -20,7 +20,7 @@ import redis as redis_lib
 
 logger = logging.getLogger(__name__)
 
-_RL_PREFIX = "fatty:rl"
+_RL_PREFIX = "slacks:rl"
 
 
 @dataclass(frozen=True)

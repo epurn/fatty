@@ -37,9 +37,9 @@ def prod_client(db_engine: Engine) -> TestClient:
 
     settings = load_settings(
         {
-            "FATTY_ENVIRONMENT": "production",
-            "FATTY_AUTH_SECRET": "synthetic-prod-secret-for-testing-only",
-            "FATTY_LOG_LEVEL": "WARNING",
+            "SLACKS_ENVIRONMENT": "production",
+            "SLACKS_AUTH_SECRET": "synthetic-prod-secret-for-testing-only",
+            "SLACKS_LOG_LEVEL": "WARNING",
         }
     )
     app = create_app(settings=settings, engine=db_engine)

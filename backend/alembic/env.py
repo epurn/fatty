@@ -33,7 +33,7 @@ target_metadata = Base.metadata
 
 
 def _resolve_url() -> str:
-    """Resolve the migration target URL from settings (``FATTY_DATABASE_URL``).
+    """Resolve the migration target URL from settings (``SLACKS_DATABASE_URL``).
 
     The URL is passed through :func:`app.db._normalize_url` so the migration path
     selects the same psycopg v3 driver as the application runtime. Without this, a

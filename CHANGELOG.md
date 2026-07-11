@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Breaking Changes
+
+- **Backend configuration prefix renamed `FATTY_*` → `SLACKS_*` (FTY-333).** The
+  backend now reads its configuration exclusively from `SLACKS_`-prefixed
+  environment variables and identifies itself as `slacks-backend`. This is a hard
+  cut with **no** read-time fallback: `FATTY_*` keys have no effect. Migration:
+  rename every `FATTY_*` key in your `.env` (and any deployment environment) to
+  the matching `SLACKS_*` key — e.g. `FATTY_AUTH_SECRET` → `SLACKS_AUTH_SECRET`,
+  `FATTY_DATABASE_URL` → `SLACKS_DATABASE_URL`. Backend tooling variables move
+  too: `FATTY_VERIFY_SKIP_INSTALL` → `SLACKS_VERIFY_SKIP_INSTALL` and
+  `FATTY_TEST_DATABASE_URL` → `SLACKS_TEST_DATABASE_URL`. (The estimator/LLM keys
+  and the Docker Compose stack are renamed in immediately-following stories.)
+
 ## v1.0.0 — 2026-06-28
 
 First stable release of Slacks, an iOS-first, self-hostable calorie and macro tracker. Users describe meals and exercise in natural language; the backend turns those descriptions into structured, evidence-backed, editable entries.

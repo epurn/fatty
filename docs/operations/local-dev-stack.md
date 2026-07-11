@@ -4,7 +4,7 @@ The repo-root `docker-compose.yml` (FTY-011, self-host setup FTY-072) brings up
 the full local backend stack over plain HTTP:
 
 ```sh
-cp .env.example .env           # copy template; set FATTY_AUTH_SECRET
+cp .env.example .env           # copy template; set SLACKS_AUTH_SECRET
 docker compose up              # starts all services; migrations run first
 ```
 
@@ -100,12 +100,12 @@ Key variable groups (see `.env.example` for full documentation):
 
 | Group | Variables | Notes |
 | --- | --- | --- |
-| Auth | `FATTY_AUTH_SECRET`, `FATTY_AUTH_TOKEN_TTL_SECONDS` | Auth secret is required; generate before first boot. |
-| Datastores | `POSTGRES_*`, `FATTY_DATABASE_URL`, `REDIS_PORT`, `FATTY_REDIS_URL` | Service hostnames must match compose service names. |
+| Auth | `SLACKS_AUTH_SECRET`, `SLACKS_AUTH_TOKEN_TTL_SECONDS` | Auth secret is required; generate before first boot. |
+| Datastores | `POSTGRES_*`, `SLACKS_DATABASE_URL`, `REDIS_PORT`, `SLACKS_REDIS_URL` | Service hostnames must match compose service names. |
 | Host ports | `API_PORT` | Published host port for the API; containers always listen on fixed ports. `POSTGRES_PORT` / `REDIS_PORT` are meaningful only if you re-enable loopback-only host mappings for direct datastore access (see Services above). |
-| Application | `FATTY_ENVIRONMENT`, `FATTY_LOG_LEVEL` | App config. |
+| Application | `SLACKS_ENVIRONMENT`, `SLACKS_LOG_LEVEL` | App config. |
 | LLM provider | `FATTY_LLM_*` | Optional; defaults to `fake` (model-prior-with-status). See LLM providers below. |
-| Estimator policy | `FATTY_ESTIMATOR_*` | Optional estimate-vs-ask clarification policy; defaults to estimate-first and does not change privacy/logging/provider validation rules. |
+| Estimator policy | `SLACKS_ESTIMATOR_*` | Optional estimate-vs-ask clarification policy; defaults to estimate-first and does not change privacy/logging/provider validation rules. |
 | USDA FDC | `FATTY_FDC_*` | Optional; free data.gov key. Disabled when key absent. |
 | Open Food Facts | `FATTY_OFF_*` | Optional, open API; enabled by default, no key required. |
 | Search | `FATTY_SEARCH_*` | Keyless SearXNG by default (points at the `searxng` service; enabled, no key). Brave is an opt-in override; `none` turns search off. |

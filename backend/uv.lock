@@ -222,7 +222,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fatty-backend"
+name = "slacks-backend"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

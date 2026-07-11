@@ -61,7 +61,7 @@ cp .env.example .env
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Open `.env` and replace the `FATTY_AUTH_SECRET` placeholder with the output.
+Open `.env` and replace the `SLACKS_AUTH_SECRET` placeholder with the output.
 The app will not start in production mode with the placeholder in place.
 
 **4. (Optional) Configure the API host port:**

@@ -3,7 +3,7 @@
 A legible nutrition-label parse persists as an **uncounted proposal** (a
 ``derived_food_items`` row held :attr:`~app.enums.DerivedItemStatus.PROPOSED`); it
 does not count toward the day's totals until the user confirms it, because "OCR is
-fallible — Fatty never silently trusts a fallible parse"
+fallible — Slacks never silently trusts a fallible parse"
 (``docs/design-philosophy.md``). This module owns the two owner-scoped actions the
 mobile confirm sheet (FTY-197) drives:
 

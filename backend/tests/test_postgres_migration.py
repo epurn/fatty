@@ -14,7 +14,7 @@ DDL: it fails on the original ``BOOLEAN DEFAULT 0`` (the first ``upgrade head``
 raises ``DatatypeMismatch``) and passes on the corrected ``DEFAULT false``.
 
 It is opt-in: the ``pg_engine`` fixture skips the test when
-``FATTY_TEST_DATABASE_URL`` is unset, so a fresh checkout and the SQLite-only
+``SLACKS_TEST_DATABASE_URL`` is unset, so a fresh checkout and the SQLite-only
 local/CI path stay green without a running Postgres. CI wires the env var against
 a real Postgres service in FTY-144.
 """

@@ -45,7 +45,7 @@ server default (`BOOLEAN DEFAULT 0`). An SQLite-only gate gives false
 confidence, so DB-touching code is also exercised against the production
 datastore:
 
-- Set **`FATTY_TEST_DATABASE_URL`** to a Postgres URL (e.g. the Compose `db`
+- Set **`SLACKS_TEST_DATABASE_URL`** to a Postgres URL (e.g. the Compose `db`
   service) and the Postgres migration guard (`tests/test_postgres_migration.py`)
   runs the full chain — `upgrade head` → `downgrade base` → `upgrade head` —
   against it via the `pg_engine` fixture in `tests/conftest.py`.

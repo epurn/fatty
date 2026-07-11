@@ -44,7 +44,7 @@ persistence rules.
 
 8 (FTY-304, wording clarification): names the concrete FTY-300 pre-validation
 provider-output repair phases governed by
-`FATTY_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS`, clarifies that the cap does not
+`SLACKS_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS`, clarifies that the cap does not
 retry provider calls or repair schema-valid policy conflicts, and records the
 fail-closed label when bounded repair is exhausted or unsafe. No schema,
 persistence, prompt, provider, settings, or estimator behavior changes.
@@ -146,7 +146,7 @@ invalid-config fail-closed behavior, allowed last-resort clarification reasons, 
 rough-provenance requirements are defined once in [estimator-policy.md](estimator-policy.md). This parse
 contract owns how that active policy is applied to schema-validated samples, the
 bounded pre-validation provider-output repair phases governed by
-`FATTY_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS`, parse disposition, question quality,
+`SLACKS_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS`, parse disposition, question quality,
 and persistence.
 
 ### LLM output schema (`ParseResult`)
@@ -209,7 +209,7 @@ String length and list count bounds cap an adversarial or runaway reply.
 
 ### Pre-validation provider-output repair (FTY-300 / FTY-304)
 
-`FATTY_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS` caps deterministic, local
+`SLACKS_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS` caps deterministic, local
 schema-shape repair for each provider sample before the parse step has a trusted
 `ParseResult`. The cap applies to every sampled provider reply, including the
 first early-stop window and any remaining self-consistency samples. It does not
@@ -738,7 +738,7 @@ event.raw_text = "stuff"
   migration changes are made here; FTY-299/FTY-300/FTY-301 implement the runtime
   behavior.
 - **FTY-304 (documentation-only wording clarification).** The shared
-  `FATTY_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS` setting already existed from FTY-300.
+  `SLACKS_ESTIMATOR_MAX_PARSE_REPAIR_ATTEMPTS` setting already existed from FTY-300.
   This contract now names the concrete pre-validation provider-output repair phases
   and the `schema_validation_failed` fail-closed result when repair is disabled,
   exhausted, unsafe, or still invalid. No `ParseResult`, persistence, DTO, migration,

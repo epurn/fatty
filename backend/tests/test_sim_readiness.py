@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.llm.config import ENV_PREFIX as LLM_ENV_PREFIX
 from app.ops import sim_readiness as sr
 
 # --------------------------------------------------------------------------- #
@@ -25,16 +26,16 @@ def test_parse_env_skips_comments_and_blanks_and_splits_on_first_equals() -> Non
                 "# a comment",
                 "",
                 "API_PORT=18000",
-                "FATTY_DATABASE_URL=postgresql://fatty:fatty@postgres:5432/fatty",
+                "SLACKS_DATABASE_URL=postgresql://slacks:slacks@postgres:5432/slacks",
                 "   # indented comment",
-                "FATTY_LLM_PROVIDER = claude_code ",
+                "SLACKS_LLM_PROVIDER = claude_code ",
             ]
         )
     )
     assert env["API_PORT"] == "18000"
-    assert env["FATTY_LLM_PROVIDER"] == "claude_code"
+    assert env["SLACKS_LLM_PROVIDER"] == "claude_code"
     # First-'=' split keeps the DSN (which itself contains no '=') intact.
-    assert env["FATTY_DATABASE_URL"].endswith("@postgres:5432/fatty")
+    assert env["SLACKS_DATABASE_URL"].endswith("@postgres:5432/slacks")
     assert "# a comment" not in env
 
 
@@ -71,10 +72,10 @@ def test_simulator_url_uses_configured_port_not_the_mobile_fallback() -> None:
 @pytest.mark.parametrize(
     "key",
     [
-        "FATTY_AUTH_SECRET",
+        "SLACKS_AUTH_SECRET",
         "POSTGRES_PASSWORD",
-        "FATTY_LLM_API_KEY",
-        "FATTY_SEARCH_API_KEY",
+        "SLACKS_LLM_API_KEY",
+        "SLACKS_SEARCH_API_KEY",
         "SOME_TOKEN",
         "CLAUDE_SESSION",
     ],
@@ -85,15 +86,15 @@ def test_is_secret_env_key_flags_secrets(key: str) -> None:
 
 @pytest.mark.parametrize(
     "key",
-    ["API_PORT", "POSTGRES_PORT", "FATTY_LLM_PROVIDER", "FATTY_ENVIRONMENT"],
+    ["API_PORT", "POSTGRES_PORT", "SLACKS_LLM_PROVIDER", "SLACKS_ENVIRONMENT"],
 )
 def test_is_secret_env_key_allows_non_secrets(key: str) -> None:
     assert sr.is_secret_env_key(key) is False
 
 
 def test_redact_env_value_masks_secret_values() -> None:
-    assert sr.redact_env_value("FATTY_AUTH_SECRET", "hunter2") == sr._REDACTED
-    assert sr.redact_env_value("POSTGRES_PASSWORD", "fatty") == sr._REDACTED
+    assert sr.redact_env_value("SLACKS_AUTH_SECRET", "hunter2") == sr._REDACTED
+    assert sr.redact_env_value("POSTGRES_PASSWORD", "slacks") == sr._REDACTED
 
 
 def test_redact_env_value_passes_non_secret_values() -> None:
@@ -101,20 +102,23 @@ def test_redact_env_value_passes_non_secret_values() -> None:
 
 
 def test_redact_env_value_leaves_empty_unchanged() -> None:
-    assert sr.redact_env_value("FATTY_AUTH_SECRET", "") == ""
+    assert sr.redact_env_value("SLACKS_AUTH_SECRET", "") == ""
 
 
 def test_reported_env_curates_and_redacts() -> None:
+    # The LLM provider key stays on the FTY-334-owned ``ENV_PREFIX`` until that
+    # story flips it; derive it here so the assertion tracks the real key.
+    llm_provider_key = f"{LLM_ENV_PREFIX}PROVIDER"
     env = {
-        "FATTY_LLM_PROVIDER": "claude_code",
-        "FATTY_AUTH_SECRET": "hunter2",
-        "FATTY_DATABASE_URL": "postgresql://fatty:fatty@postgres:5432/fatty",
+        llm_provider_key: "claude_code",
+        "SLACKS_AUTH_SECRET": "hunter2",
+        "SLACKS_DATABASE_URL": "postgresql://slacks:slacks@postgres:5432/slacks",
     }
     pairs = dict(sr.reported_env(env))
-    assert pairs["FATTY_LLM_PROVIDER"] == "claude_code"
+    assert pairs[llm_provider_key] == "claude_code"
     # Secrets and DSNs are never surfaced by the curated allowlist.
-    assert "FATTY_AUTH_SECRET" not in pairs
-    assert "FATTY_DATABASE_URL" not in pairs
+    assert "SLACKS_AUTH_SECRET" not in pairs
+    assert "SLACKS_DATABASE_URL" not in pairs
 
 
 # --------------------------------------------------------------------------- #

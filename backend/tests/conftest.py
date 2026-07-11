@@ -27,7 +27,7 @@ from app.settings import Settings
 #: guard (FTY-143). When set, the Postgres migration test runs against it; when
 #: unset, that test skips so a fresh checkout and the SQLite-only path stay green
 #: without a running Postgres. CI wires this against a real Postgres in FTY-144.
-POSTGRES_TEST_URL_ENV = "FATTY_TEST_DATABASE_URL"
+POSTGRES_TEST_URL_ENV = "SLACKS_TEST_DATABASE_URL"
 
 
 class RecordingEnqueuer:
@@ -89,7 +89,7 @@ def db_engine(tmp_path: Path) -> Iterator[Engine]:
 def pg_engine() -> Iterator[Engine]:
     """A Postgres engine for the opt-in migration guard (FTY-143).
 
-    Built from ``FATTY_TEST_DATABASE_URL`` via the production ``create_db_engine``
+    Built from ``SLACKS_TEST_DATABASE_URL`` via the production ``create_db_engine``
     (so the test exercises the same driver/URL handling the deploy uses). Skips
     the requesting test when the env var is unset, keeping the SQLite-only path
     green without a running Postgres.

@@ -48,7 +48,7 @@ A package `verify.sh` should run that package's own formatter, linter,
 typechecker, and tests, and exit non-zero on failure.
 
 Package hooks may skip only their dependency-install step when
-`FATTY_VERIFY_SKIP_INSTALL` is set to a truthy value (`1`, `true`, `yes`, or
+`SLACKS_VERIFY_SKIP_INSTALL` is set to a truthy value (`1`, `true`, `yes`, or
 `on`, case-sensitive variants accepted by the hook). This signal is for
 pre-provisioned author environments where locked dependencies are already
 installed and network dependency installation is intentionally unavailable. The

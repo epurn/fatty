@@ -23,6 +23,7 @@ from app.estimator.search import (
     SEARCH_KINDS,
     load_search_settings,
 )
+from app.llm.config import ENV_PREFIX as LLM_ENV_PREFIX
 from app.llm.config import load_llm_settings
 from app.schemas.sources import (
     EgressPolicy,
@@ -111,7 +112,9 @@ def _probe_codex(environ: Mapping[str, str] | None = None) -> tuple[bool, bool]:
     if not binary_present:
         return False, False
 
-    if source.get("FATTY_LLM_PROVIDER") == "codex" and source.get("FATTY_LLM_API_KEY"):
+    if source.get(f"{LLM_ENV_PREFIX}PROVIDER") == "codex" and source.get(
+        f"{LLM_ENV_PREFIX}API_KEY"
+    ):
         return True, True
 
     codex_home = source.get("CODEX_HOME", os.path.expanduser("~/.codex"))
@@ -124,7 +127,7 @@ def list_source_capabilities(environ: Mapping[str, str] | None = None) -> Source
     The official-source search provider (FTY-079/164) defaults to the keyless local
     SearXNG backend, so out of the box it is ``enabled`` and ``available`` with no
     API key; selecting Brave gates ``available`` on its key, and the ``none``
-    provider (or ``FATTY_SEARCH_ENABLED=false``) reports enabled=false — the
+    provider (or search explicitly disabled) reports enabled=false — the
     explicit opt-out. USDA FDC (generic foods) is always ``enabled`` but only
     ``available`` with an API key; Open Food Facts (barcode) needs no credentials, so
     it is always ``available`` and ``enabled`` unless a self-hoster turns it off.
@@ -132,7 +135,7 @@ def list_source_capabilities(environ: Mapping[str, str] | None = None) -> Source
     the active provider and ``available`` when the CLI is on PATH and a session
     exists. The ``codex`` LLM provider (FTY-296) follows the same diagnostics
     shape: ``enabled`` when selected, ``available`` when the CLI is on PATH and
-    either a Fatty-side API key is configured or saved Codex auth is detectable
+    either a Slacks-side API key is configured or saved Codex auth is detectable
     under ``CODEX_HOME``.
     """
 

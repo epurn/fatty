@@ -2,7 +2,7 @@
 
 A legible nutrition-label parse lands as an **uncounted proposal** (a
 ``derived_food_items`` row held ``proposed``) rather than an immediately-counted
-``resolved`` item, because "OCR is fallible — Fatty never silently trusts a
+``resolved`` item, because "OCR is fallible — Slacks never silently trusts a
 fallible parse" (``docs/design-philosophy.md``). Two boundary shapes back the
 mobile confirm sheet (FTY-197):
 

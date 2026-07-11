@@ -595,7 +595,7 @@
         "type": "object"
       },
       "DerivedItemStatus": {
-        "description": "Resolution status of a derived food/exercise item (FTY-042, FTY-196).\n\nA candidate is persisted :attr:`UNRESOLVED` \u2014 parsed from the log text but not\nyet costed. The calculation steps (FTY-043 exercise burn, FTY-044 food\nresolution) later attach calories/macros and advance it to :attr:`RESOLVED`.\nFTY-042 only ever writes :attr:`UNRESOLVED`.\n\n:attr:`PROPOSED` (FTY-196) is a costed-but-**unconfirmed** food item: a legible\nnutrition-label parse holds its computed calories/macros in this state instead\nof :attr:`RESOLVED`, because \"OCR is fallible \u2014 Fatty never silently trusts a\nfallible parse\" (``docs/design-philosophy.md``). A ``proposed`` item is excluded\nfrom every finalized-state read **by construction** (the daily-summary filter\nrequires :attr:`RESOLVED`, see ``docs/contracts/daily-summary.md``), so it never\ncounts toward totals; confirming the proposal transitions it ``proposed \u2192\nresolved`` and it then counts. Only the label path writes :attr:`PROPOSED`; a\ntext parse resolves straight to :attr:`RESOLVED` as before.\n\n``status`` is persisted as a plain ``VARCHAR`` (not a database ``ENUM``), so\nadding :attr:`PROPOSED` is an application-only change with **no** schema\nmigration \u2014 the value round-trips on both SQLite and Postgres unchanged.",
+        "description": "Resolution status of a derived food/exercise item (FTY-042, FTY-196).\n\nA candidate is persisted :attr:`UNRESOLVED` \u2014 parsed from the log text but not\nyet costed. The calculation steps (FTY-043 exercise burn, FTY-044 food\nresolution) later attach calories/macros and advance it to :attr:`RESOLVED`.\nFTY-042 only ever writes :attr:`UNRESOLVED`.\n\n:attr:`PROPOSED` (FTY-196) is a costed-but-**unconfirmed** food item: a legible\nnutrition-label parse holds its computed calories/macros in this state instead\nof :attr:`RESOLVED`, because \"OCR is fallible \u2014 Slacks never silently trusts a\nfallible parse\" (``docs/design-philosophy.md``). A ``proposed`` item is excluded\nfrom every finalized-state read **by construction** (the daily-summary filter\nrequires :attr:`RESOLVED`, see ``docs/contracts/daily-summary.md``), so it never\ncounts toward totals; confirming the proposal transitions it ``proposed \u2192\nresolved`` and it then counts. Only the label path writes :attr:`PROPOSED`; a\ntext parse resolves straight to :attr:`RESOLVED` as before.\n\n``status`` is persisted as a plain ``VARCHAR`` (not a database ``ENUM``), so\nadding :attr:`PROPOSED` is an application-only change with **no** schema\nmigration \u2014 the value round-trips on both SQLite and Postgres unchanged.",
         "enum": [
           "unresolved",
           "resolved",
@@ -2015,7 +2015,7 @@
         "type": "object"
       },
       "TargetSource": {
-        "description": "Provenance of an effective target value (FTY-095).\n\nEvery target the read-model exposes carries this flag so a consumer can\nhonestly distinguish a number Fatty derived from the user's goal + metrics\nfrom one the user set by hand:\n\n- :attr:`DERIVED` \u2014 the value comes from the deterministic calculator\n  (``daily_targets`` derived columns); a reset is a no-op.\n- :attr:`USER` \u2014 the user manually overrode the value; the derived value is\n  still reported (what a reset would restore) but the effective value and\n  ``source`` come from the override.",
+        "description": "Provenance of an effective target value (FTY-095).\n\nEvery target the read-model exposes carries this flag so a consumer can\nhonestly distinguish a number Slacks derived from the user's goal + metrics\nfrom one the user set by hand:\n\n- :attr:`DERIVED` \u2014 the value comes from the deterministic calculator\n  (``daily_targets`` derived columns); a reset is a no-op.\n- :attr:`USER` \u2014 the user manually overrode the value; the derived value is\n  still reported (what a reset would restore) but the effective value and\n  ``source`` come from the override.",
         "enum": [
           "derived",
           "user"
@@ -2189,7 +2189,7 @@
     }
   },
   "info": {
-    "title": "fatty-backend",
+    "title": "slacks-backend",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
@@ -3498,7 +3498,7 @@
     },
     "/api/users/{user_id}/log-events/{event_id}/label-proposal": {
       "get": {
-        "description": "Return the uncounted proposed values for a label event (FTY-196).\n\nA legible label parse lands as an **uncounted proposal** (a ``proposed`` food\nitem that does not count toward totals) rather than a counted ``resolved`` item,\nbecause \"OCR is fallible \u2014 Fatty never silently trusts a fallible parse\". This\nread backs the mobile confirm sheet (FTY-197): it returns the parsed food values\nplus their ``user_label`` ``source`` descriptor.\n\nOwnership is fail-closed (FTY-030): a cross-user or nonexistent ``event_id`` is\nindistinguishable as ``404`` (no existence oracle). An event with no proposal\n(never had one, or already confirmed) returns ``200`` with ``proposal: null``\n(no status oracle). The nutrition values, like ``raw_text``, are never logged.",
+        "description": "Return the uncounted proposed values for a label event (FTY-196).\n\nA legible label parse lands as an **uncounted proposal** (a ``proposed`` food\nitem that does not count toward totals) rather than a counted ``resolved`` item,\nbecause \"OCR is fallible \u2014 Slacks never silently trusts a fallible parse\". This\nread backs the mobile confirm sheet (FTY-197): it returns the parsed food values\nplus their ``user_label`` ``source`` descriptor.\n\nOwnership is fail-closed (FTY-030): a cross-user or nonexistent ``event_id`` is\nindistinguishable as ``404`` (no existence oracle). An event with no proposal\n(never had one, or already confirmed) returns ``200`` with ``proposal: null``\n(no status oracle). The nutrition values, like ``raw_text``, are never logged.",
         "operationId": "get_label_proposal_api_users__user_id__log_events__event_id__label_proposal_get",
         "parameters": [
           {

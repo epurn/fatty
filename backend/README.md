@@ -17,7 +17,7 @@ The Slacks backend package (FastAPI, Python).
 
 ```sh
 uv sync --dev        # create the environment from uv.lock
-uv run python -m app # run the app (uvicorn) on FATTY_HOST:FATTY_PORT
+uv run python -m app # run the app (uvicorn) on SLACKS_HOST:SLACKS_PORT
 uv run pytest        # run the tests
 ```
 
@@ -54,24 +54,24 @@ uv run pytest        # run the tests
 
 - `GET /healthz` returns `200 {"status": "ok"}` (consumed by the FTY-011 Docker
   Compose healthcheck and later infra).
-- Settings are read from `FATTY_`-prefixed environment variables:
+- Settings are read from `SLACKS_`-prefixed environment variables:
 
   | Variable | Default | Notes |
   | --- | --- | --- |
-  | `FATTY_APP_NAME` | `fatty-backend` | Application title. |
-  | `FATTY_ENVIRONMENT` | `development` | One of `development`, `test`, `production`. |
-  | `FATTY_LOG_LEVEL` | `INFO` | Standard Python log level. |
-  | `FATTY_HOST` | `127.0.0.1` | Bind address; deployments override to expose. |
-  | `FATTY_PORT` | `8000` | Bind port (1–65535). |
-  | `FATTY_REDIS_URL` | `redis://localhost:6379/0` | Celery broker + result backend. |
-  | `FATTY_DATABASE_URL` | `postgresql://fatty:fatty@localhost:5432/fatty` | Postgres DSN for the identity/profile model and migrations. A bare `postgresql://` DSN binds to psycopg (v3). |
-  | `FATTY_AUTH_SECRET` | `dev-insecure-change-me` | HMAC signing secret for local-auth bearer tokens. Production refuses to start on the default. |
-  | `FATTY_AUTH_TOKEN_TTL_SECONDS` | `604800` | Bearer-token lifetime (7 days). |
+  | `SLACKS_APP_NAME` | `slacks-backend` | Application title. |
+  | `SLACKS_ENVIRONMENT` | `development` | One of `development`, `test`, `production`. |
+  | `SLACKS_LOG_LEVEL` | `INFO` | Standard Python log level. |
+  | `SLACKS_HOST` | `127.0.0.1` | Bind address; deployments override to expose. |
+  | `SLACKS_PORT` | `8000` | Bind port (1–65535). |
+  | `SLACKS_REDIS_URL` | `redis://localhost:6379/0` | Celery broker + result backend. |
+  | `SLACKS_DATABASE_URL` | `postgresql://slacks:slacks@localhost:5432/slacks` | Postgres DSN for the identity/profile model and migrations. A bare `postgresql://` DSN binds to psycopg (v3). |
+  | `SLACKS_AUTH_SECRET` | `dev-insecure-change-me` | HMAC signing secret for local-auth bearer tokens. Production refuses to start on the default. |
+  | `SLACKS_AUTH_TOKEN_TTL_SECONDS` | `604800` | Bearer-token lifetime (7 days). |
 
   Invalid or out-of-range values fail fast at startup with a `ValidationError`.
   Under Docker Compose these point at the `redis` and `postgres` service
   hostnames; see the repo-root `docker-compose.yml` and `.env.example`.
-  `FATTY_AUTH_SECRET` is read from the environment only and is never logged.
+  `SLACKS_AUTH_SECRET` is read from the environment only and is never logged.
 
 ## Database and migrations
 
@@ -79,7 +79,7 @@ Schema is owned by Alembic migrations (never `create_all` in production). The
 baseline migration creates `users`, `auth_identities`, and `user_profiles`.
 
 ```sh
-uv run alembic upgrade head   # apply migrations to FATTY_DATABASE_URL
+uv run alembic upgrade head   # apply migrations to SLACKS_DATABASE_URL
 uv run alembic downgrade -1   # roll back the most recent migration
 ```
 
@@ -90,8 +90,8 @@ Authentication identities (and password hashes) live in `auth_identities`,
 separate from `users`; profiles enforce object-level authorization so a user can
 only read or write their own profile.
 
-- The LLM provider layer is configured from `FATTY_LLM_`-prefixed variables and
-  documented as a separate contract; see
+- The LLM provider layer is configured from its own LLM-provider environment
+  variables and documented as a separate contract; see
   [`docs/contracts/llm-provider.md`](../docs/contracts/llm-provider.md). Keys
   live in the environment only and are never logged or exposed to clients.
 
