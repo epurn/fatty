@@ -63,7 +63,7 @@ from typing import Any, Final
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.enums import ExactEvidenceKind, ExactEvidenceQuality
+from app.enums import ExactEvidenceKind, ExactEvidenceQuality, SourceType
 from app.estimator.food_serving import NutritionFacts, resolve_grams, scale_facts
 from app.estimator.re_match import (
     ItemForbidden,
@@ -96,6 +96,25 @@ _PAYLOAD_VERSION: Final[int] = 1
 #: means a proposal signature and an auth-token signature can never be confused even
 #: if their payloads ever coincided — a cross-context reference fails verification.
 _SIGN_DOMAIN: Final[str] = "fty307.exact_evidence.v1"
+
+#: The single high-trust exact ``source_type`` an ``EXACT`` proposal of each kind is
+#: allowed to carry: a barcode resolves through the ``product_database``, a nutrition
+#: label through the user's own ``user_label``. Apply refuses an ``EXACT`` proposal
+#: whose source is anything else so a mis-built/tampered reference cannot promote an
+#: item to a source its evidence never earned.
+_EXACT_SOURCE_TYPE: Final[dict[ExactEvidenceKind, str]] = {
+    ExactEvidenceKind.BARCODE: SourceType.PRODUCT_DATABASE.value,
+    ExactEvidenceKind.LABEL: SourceType.USER_LABEL.value,
+}
+
+#: The low-trust ``source_type`` set a ``FALLBACK`` proposal may carry: it resolved
+#: through a reference-source lookup or the model-prior cold pass and must stay
+#: visibly rough. Apply refuses a fallback that claims any higher-trust source
+#: (notably the exact ``product_database`` / ``user_label``) so it can never
+#: masquerade as exact once its provenance is persisted (FTY-306/307).
+_FALLBACK_SOURCE_TYPES: Final[frozenset[str]] = frozenset(
+    {SourceType.REFERENCE_SOURCE.value, SourceType.MODEL_PRIOR.value}
+)
 
 
 class InvalidProposalRef(Exception):
@@ -311,9 +330,11 @@ class ExactEvidenceApplyCapability:
         Fails closed with no mutation on: a non-owner caller or unknown item
         (:class:`~app.estimator.re_match.ItemForbidden` /
         :class:`~app.estimator.re_match.ItemNotFound` → ``404``); a tampered,
-        expired, wrong-user, or wrong-item reference
-        (:class:`ProposalNotResolvable` → ``422``); an uncostable current/adjusted
-        amount (:class:`AmountNotCostable` → ``422``). On success it preserves the
+        expired, wrong-user, wrong-item, or quality/source-inconsistent reference —
+        e.g. a fallback claiming a high-trust source, or a non-applyable
+        ``quality=none`` (:class:`ProposalNotResolvable` → ``422``); an uncostable
+        current/adjusted amount (:class:`AmountNotCostable` → ``422``). On success it
+        preserves the
         current amount (or applies ``amount`` before costing), rewrites the item's
         evidence provenance to the proposal's source, re-snapshots ``*_estimated``,
         appends one ``re_match`` correction row, and returns the updated item. The
@@ -329,6 +350,7 @@ class ExactEvidenceApplyCapability:
             raise ProposalNotResolvable("proposal reference does not resolve") from exc
         if proposal.owner_id != owner_id or proposal.item_id != item_id:
             raise ProposalNotResolvable("proposal is not held for this user and item")
+        _ensure_applyable(proposal)
 
         # Cost BEFORE any mutation so an uncostable amount leaves the item untouched.
         effective_amount = amount if amount is not None else item.amount
@@ -411,6 +433,38 @@ class ExactEvidenceApplyCapability:
         if item is None:
             raise ItemNotFound("derived food item not found")
         return item
+
+
+def _ensure_applyable(proposal: ExactEvidenceProposal) -> None:
+    """Reject a proposal whose quality/source-type pair is not honestly applyable.
+
+    Apply is the enforcement point for the FTY-306/307 trust invariant, independent
+    of how the proposal was built: because ``build_proposal`` is the shared primitive
+    the FTY-308/309 generators call, a signature only proves the server issued the
+    reference — it does not prove the ``quality`` and ``source_type`` were paired
+    honestly. So before any mutation:
+
+    - an ``EXACT`` proposal must carry its kind's high-trust exact source
+      (:data:`_EXACT_SOURCE_TYPE`);
+    - a ``FALLBACK`` proposal must stay on a low-trust estimator source
+      (:data:`_FALLBACK_SOURCE_TYPES`) — never ``product_database`` / ``user_label``;
+    - a ``NONE`` proposal is a failure read with nothing to apply.
+
+    Any mismatch raises :class:`ProposalNotResolvable` (→ ``422
+    proposal_not_resolvable``) so a fallback can never be persisted as an
+    exact/high-trust source, and ``_rewrite_evidence`` only ever sees a
+    quality-consistent source type. Fails closed with no mutation.
+    """
+
+    quality = proposal.quality
+    if quality is ExactEvidenceQuality.EXACT:
+        if proposal.source_type != _EXACT_SOURCE_TYPE.get(proposal.kind):
+            raise ProposalNotResolvable("exact proposal carries a non-exact source type")
+    elif quality is ExactEvidenceQuality.FALLBACK:
+        if proposal.source_type not in _FALLBACK_SOURCE_TYPES:
+            raise ProposalNotResolvable("fallback proposal carries a high-trust source type")
+    else:  # ExactEvidenceQuality.NONE — a failure read with nothing to apply.
+        raise ProposalNotResolvable("proposal has no applyable evidence")
 
 
 def cost_grams(

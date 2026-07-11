@@ -513,6 +513,140 @@ def test_tampered_reference_apply_is_rejected(
 
 
 # ---------------------------------------------------------------------------
+# (e2) Quality/source-type semantics enforced at apply (no mutation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "high_trust_source",
+    [SourceType.PRODUCT_DATABASE.value, SourceType.USER_LABEL.value],
+)
+def test_fallback_claiming_a_high_trust_source_is_rejected_no_mutation(
+    client: TestClient, db_engine: Engine, session: Session, high_trust_source: str
+) -> None:
+    # A signed FALLBACK proposal that carries an exact/high-trust source_type must be
+    # refused before any mutation — it can never be persisted as product_database /
+    # user_label and read as exact (FTY-306/307 invariant).
+    user_id, _auth = register(client, f"ee-fb-hitrust-{high_trust_source}@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    proposal = _fallback_proposal(uuid.UUID(user_id), item_id, source_type=high_trust_source)
+
+    with pytest.raises(ProposalNotResolvable):
+        _capability(session).apply(
+            owner_id=uuid.UUID(user_id),
+            current_user=_user(session, user_id),
+            item_id=item_id,
+            proposal_ref=encode_proposal_ref(proposal, SECRET),
+        )
+
+    session.expire_all()
+    item = session.get(DerivedFoodItem, item_id)
+    assert item is not None
+    assert item.calories == pytest.approx(300.0)  # no mutation
+    # The item keeps whatever evidence it had — no product_database/user_label written.
+    written = session.scalars(
+        select(EvidenceSource).where(EvidenceSource.derived_food_item_id == item_id)
+    ).all()
+    assert all(e.source_type not in {"product_database", "user_label"} for e in written)
+    assert (
+        session.scalars(select(Correction).where(Correction.derived_food_item_id == item_id)).all()
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "wrong_source"),
+    [
+        # Barcode EXACT must be product_database, not a low-trust or label source.
+        (ExactEvidenceKind.BARCODE, SourceType.REFERENCE_SOURCE.value),
+        (ExactEvidenceKind.BARCODE, SourceType.USER_LABEL.value),
+        # Label EXACT must be user_label, not product_database.
+        (ExactEvidenceKind.LABEL, SourceType.PRODUCT_DATABASE.value),
+    ],
+)
+def test_exact_proposal_with_mismatched_source_type_is_rejected_no_mutation(
+    client: TestClient,
+    db_engine: Engine,
+    session: Session,
+    kind: ExactEvidenceKind,
+    wrong_source: str,
+) -> None:
+    user_id, _auth = register(client, f"ee-exact-mismatch-{kind.value}-{wrong_source}@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    proposal = _exact_proposal(uuid.UUID(user_id), item_id, kind=kind, source_type=wrong_source)
+
+    with pytest.raises(ProposalNotResolvable):
+        _capability(session).apply(
+            owner_id=uuid.UUID(user_id),
+            current_user=_user(session, user_id),
+            item_id=item_id,
+            proposal_ref=encode_proposal_ref(proposal, SECRET),
+        )
+
+    session.expire_all()
+    assert session.get(DerivedFoodItem, item_id).calories == pytest.approx(300.0)  # type: ignore[union-attr]
+
+
+def test_quality_none_proposal_is_not_applyable_no_mutation(
+    client: TestClient, db_engine: Engine, session: Session
+) -> None:
+    # A quality=none proposal is a failure read with nothing to apply.
+    user_id, _auth = register(client, "ee-quality-none@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    proposal = build_proposal(
+        owner_id=uuid.UUID(user_id),
+        item_id=item_id,
+        kind=ExactEvidenceKind.BARCODE,
+        quality=ExactEvidenceQuality.NONE,
+        source_type=SourceType.MODEL_PRIOR.value,
+        source_ref="model_prior",
+        content_hash="hash-none",
+        facts=_facts(),
+    )
+
+    with pytest.raises(ProposalNotResolvable):
+        _capability(session).apply(
+            owner_id=uuid.UUID(user_id),
+            current_user=_user(session, user_id),
+            item_id=item_id,
+            proposal_ref=encode_proposal_ref(proposal, SECRET),
+        )
+
+    session.expire_all()
+    assert session.get(DerivedFoodItem, item_id).calories == pytest.approx(300.0)  # type: ignore[union-attr]
+    assert (
+        session.scalars(select(Correction).where(Correction.derived_food_item_id == item_id)).all()
+        == []
+    )
+
+
+def test_apply_api_fallback_claiming_high_trust_source_is_422_no_mutation(
+    client: TestClient, db_engine: Engine, session: Session
+) -> None:
+    # End-to-end: a fallback signed with product_database renders the contracted
+    # 422 proposal_not_resolvable with no mutation (never a masquerading exact apply).
+    user_id, auth = register(client, "ee-api-fb-hitrust@example.com")
+    item_id = seed_food_item(db_engine, user_id, amount=2.0, calories=300.0)
+    ref = encode_proposal_ref(
+        _fallback_proposal(
+            uuid.UUID(user_id), item_id, source_type=SourceType.PRODUCT_DATABASE.value
+        ),
+        DEV_AUTH_SECRET,
+    )
+
+    resp = client.post(
+        _apply_url(user_id, item_id),
+        headers={"Authorization": auth},
+        json={"proposal_ref": ref},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["error"] == "proposal_not_resolvable"
+    session.expire_all()
+    assert session.get(DerivedFoodItem, item_id).calories == pytest.approx(300.0)  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
 # (f) Edit interaction
 # ---------------------------------------------------------------------------
 
