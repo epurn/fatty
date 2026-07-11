@@ -1029,11 +1029,11 @@ pre-FTY-314 fetch-only behavior exactly.
 - Fetch/search dead ends enter the interpretation loop as sanitized status
   labels such as `fetch_403` or `snippet_unavailable`; an ambiguous page or
   snippet read (`extract_unresolved` / `extract_low_confidence` /
-  `extract_rejected_facts`) also carries a bounded schema-validated descriptor
-  (stated product name, disposition, confidence, facts basis) so the session
-  can interpret what the surface said, not a status label alone (FTY-326); raw
-  snippet/page text and provider assumption strings still never enter the
-  session ledger or model-prior prompt.
+  `extract_rejected_facts`) also carries a bounded descriptor the session can
+  interpret (FTY-326): stated product identity reduced through the same identity
+  sanitization as reference-search egress (never the raw transcription string),
+  disposition, confidence, and facts basis. Raw snippet/page text and provider
+  assumption strings still never enter the session ledger or model-prior prompt.
 - No egress change: snippets arrive on the existing search response; this adds
   no browser automation, redirects, allowlist widening, or new fetch surface.
 

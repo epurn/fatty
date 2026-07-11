@@ -36,10 +36,14 @@ def add_evidence_record(  # noqa: PLR0913 - mirrors the bounded evidence-view fi
     The ``EvidenceRecord`` renders through the decision-trace sanitizers at the
     provider-egress seam, so callers may pass the same bounded labels/source refs
     they already send to ``record_decision``.  ``source_desc`` is for a bounded
-    source-stated identity descriptor (for example, a global database description
-    or schema-extracted product name) when the session needs the evidence surface
-    that a compatibility/serving decision saw. Raw page/snippet/query/user text
-    must still never be passed here.
+    source-stated identity descriptor (for example, a global database description)
+    when the session needs the evidence surface that a compatibility/serving
+    decision saw. Raw page/snippet/query/user text must never be passed here, and
+    a provider-transcribed identity (page/snippet extraction ``product_name``)
+    must be reduced through
+    :func:`~app.estimator.identity_sanitizer.sanitized_identity` by the caller
+    first — the trace sanitizers bound and redact secrets but do not sanitize
+    open-vocabulary identity text.
     """
 
     session = context.interpretation_session

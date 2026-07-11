@@ -147,9 +147,11 @@ class EvidenceRecord:
     Per the FTY-324 ``evidence_view`` contract this never carries raw fetched
     pages, snippets, provider output blobs, or search queries. It may carry the
     same bounded fields the decision trace already sanitizes, plus source-stated
-    descriptors such as a global database row description or extracted product
-    name so the session sees the evidence surface it is being asked to interpret
-    instead of a status label alone.
+    descriptors — a global database row description, or a page/snippet
+    extraction's product identity reduced through
+    :func:`~app.estimator.identity_sanitizer.sanitized_identity` (never the
+    provider's raw transcription string) — so the session sees the evidence
+    surface it is being asked to interpret instead of a status label alone.
     """
 
     tier: str

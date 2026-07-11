@@ -22,6 +22,7 @@ from app.estimator.food_serving import (
     per_serving_to_per_100g,
     serving_size_grams,
 )
+from app.estimator.identity_sanitizer import sanitized_identity
 from app.estimator.pipeline import CandidateDraft
 from app.estimator.reference_fetch import ReferenceFetchSettings
 from app.estimator.search import SearchCandidate, SearchProvider, SearchStatus
@@ -439,9 +440,12 @@ def _unaccepted_read_desc(estimate: NamedFoodEstimate | None) -> str | None:
     facts — reaches the session ledger as this summary of what the transcriber
     stated (product identity, disposition, confidence, facts basis) so the
     interpretation loop can act on the read instead of a bare status label
-    (FTY-326). Only closed-vocabulary and length-bounded schema fields are used —
-    never raw page/snippet text or provider assumption strings — and the evidence
-    view bounds and redacts the descriptor again at the provider-egress seam.
+    (FTY-326). The provider transcribes ``product_name`` from raw page/snippet
+    text, so it is provider-controlled: it enters the descriptor only through
+    :func:`sanitized_identity` (framing/instruction/personal-context vocabulary
+    stripped, hard token bound), never as the raw transcription string. The other
+    fields are closed-vocabulary or numeric schema fields, and the evidence view
+    bounds and redacts the descriptor again at the provider-egress seam.
     ``None`` when there is no schema-valid estimate to describe (provider error).
     """
 
@@ -449,7 +453,9 @@ def _unaccepted_read_desc(estimate: NamedFoodEstimate | None) -> str | None:
         return None
     details: list[str] = []
     if estimate.facts is not None and estimate.facts.product_name:
-        details.append(f"product={estimate.facts.product_name}")
+        product_identity = sanitized_identity(estimate.facts.product_name)
+        if product_identity:
+            details.append(f"product={product_identity}")
     details.append(f"disposition={estimate.disposition.value}")
     details.append(f"confidence={estimate.confidence:.2f}")
     if estimate.facts is not None:

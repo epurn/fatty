@@ -32,6 +32,7 @@ from app.estimator.hardened_fetch import (
     FetchResponseError,
     FetchTransientError,
 )
+from app.estimator.identity_sanitizer import sanitized_identity
 from app.estimator.interpretation_tools import add_evidence_record
 from app.estimator.pipeline import CandidateDraft, EstimationContext
 from app.estimator.searched_reference import (
@@ -178,11 +179,20 @@ def _fetch_error_outcome(exc: Exception) -> str:
 
 
 def _evidence_surface(found: SearchedReferenceFacts) -> str | None:
-    """Bounded source-stated facts the session can use for compatibility repair."""
+    """Bounded source-stated facts the session can use for compatibility repair.
+
+    ``product_name`` is the extraction provider's transcription of raw fetched
+    page/snippet text — provider-controlled — so it enters the descriptor only
+    through :func:`sanitized_identity` (framing/instruction/personal-context
+    vocabulary stripped, hard token bound), never as the raw transcription
+    string. The remaining fields are numeric or closed-vocabulary.
+    """
 
     details: list[str] = []
     if found.product_name:
-        details.append(f"product={found.product_name}")
+        product_identity = sanitized_identity(found.product_name)
+        if product_identity:
+            details.append(f"product={product_identity}")
     details.append(f"basis={found.basis}")
     if found.count_serving is not None:
         details.append(f"count={found.count_serving.amount:g} {found.count_serving.unit}")
