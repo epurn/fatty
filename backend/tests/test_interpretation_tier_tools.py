@@ -41,6 +41,7 @@ from app.estimator.search import (
 )
 from app.estimator.searched_reference import MODEL_PRIOR_SOURCE_TYPE
 from app.estimator.self_consistency import SELF_CONSISTENCY_FIRST_WINDOW
+from app.estimator.web_evidence_trace import trace_candidate_index
 from app.llm.errors import LLMError
 from app.llm.providers.fake import FakeProvider
 from app.models.derived import ClarificationQuestion, DerivedFoodItem
@@ -565,6 +566,109 @@ def _unanimous_session(
     session = InterpretationSession(provider, context.raw_text, policy=ParsePolicySettings())
     session.interpret_initial(context)
     return session
+
+
+def test_accepted_page_assumptions_never_persist_provider_output(
+    client: TestClient, session: Session
+) -> None:
+    """An accepted page extraction persists no provider-stated assumptions: the
+    transcriber saw raw page text, so anything it echoes into ``assumptions``
+    must stay off the evidence row, run assumptions, and trace."""
+
+    page_sentinel = "RAW-PAGE-ASSUMPTION sk-pageecho987"
+    item: dict[str, Any] = {
+        "type": "food",
+        "name": "dill pickle hummus",
+        "brand": "Presidents Choice",
+        "quantity_text": "1 tbsp",
+        "unit": "tbsp",
+        "amount": 1,
+    }
+    parse_responses: list[dict[str, Any] | LLMError] = [
+        _parsed_response([item], confidence=0.95) for _ in range(SELF_CONSISTENCY_FIRST_WINDOW)
+    ]
+    parse_provider = FakeProvider(responses=parse_responses)
+    official_provider = FakeProvider(
+        responses=[
+            {
+                "disposition": "resolved",
+                "confidence": 0.95,
+                "facts": _HUMMUS_FACTS,
+                "assumptions": [f"transcribed from page: {page_sentinel}"],
+            }
+        ]
+    )
+    search = ScriptedSearchProvider({"dill pickle hummus Presidents Choice": _success(_HUMMUS_URL)})
+    fetcher = RecordingFetcher(f"nutrition facts page {page_sentinel}")
+    pipeline = Pipeline(
+        [
+            ParseStep(parse_provider),
+            FoodResolveStep(FoodResolver(session=session, source=FakeFoodSource())),
+            OfficialSourceResolveStep(
+                provider=official_provider,
+                search_provider=search,
+                fetch_settings=OfficialFetchSettings(
+                    allowed_hosts=frozenset({"source.example.com"})
+                ),
+                reference_fetch_settings=ReferenceFetchSettings(),
+                fetch_fn=fetcher,
+                reference_fetch_fn=fetcher,
+            ),
+        ]
+    )
+    user_id, event_id = _seed_event(
+        client, "fty326-page-assumptions@example.com", "PC dill pickle hummus, 1 tbsp"
+    )
+
+    result = process_estimation(session, log_event_id=event_id, user_id=user_id, pipeline=pipeline)
+
+    assert result.event_status is LogEventStatus.COMPLETED
+    food = _foods(session, event_id)[0]
+    assert food.calories == pytest.approx(40.0)
+    evidence = _evidence(session, event_id)[0]
+    assert evidence.source_type == "official_source"
+    assert evidence.assumptions is None
+
+    run = _run(session, event_id)
+    persisted = json.dumps(
+        {
+            "trace": run.trace,
+            "source_refs": run.source_refs,
+            "assumptions": run.assumptions,
+            "validation_errors": run.validation_errors,
+            "evidence_assumptions": evidence.assumptions,
+        }
+    )
+    assert "RAW-PAGE-ASSUMPTION" not in persisted
+    assert "sk-pageecho987" not in persisted
+
+
+def test_pending_official_duplicates_keep_their_own_positions(session: Session) -> None:
+    # Duplicate parsed foods are equal value objects. The food step substitutes
+    # each with the session's (value-equal) draft before deferring it, so only
+    # preserved object identity between ``context.food_candidates`` and
+    # ``pending_official_candidates`` lets trace_candidate_index() attribute the
+    # second duplicate to its own position — otherwise the official step would
+    # resolve, re-query, and persist it against the first duplicate's hypothesis.
+    context = EstimationContext(
+        log_event_id=uuid.uuid4(), user_id=uuid.uuid4(), raw_text="a granola bar and another"
+    )
+    item = {"type": "food", "name": "granola bar", "quantity_text": ""}
+    interpretation = _unanimous_session(context, [item, item])
+    context.interpretation_session = interpretation
+    context.food_candidates = [
+        CandidateDraft(name="granola bar", quantity_text=""),
+        CandidateDraft(name="granola bar", quantity_text=""),
+    ]
+
+    FoodResolveStep(FoodResolver(session=session, source=FakeFoodSource())).run(context)
+
+    pending = context.pending_official_candidates
+    assert len(pending) == 2
+    assert pending[0] is context.food_candidates[0]
+    assert pending[1] is context.food_candidates[1]
+    assert trace_candidate_index(context, pending[0]) == 0
+    assert trace_candidate_index(context, pending[1]) == 1
 
 
 def test_current_food_candidate_prefers_position_for_duplicate_candidates() -> None:

@@ -361,6 +361,13 @@ class FoodResolveStep:
         """
 
         candidate = current_food_candidate(context, candidate, index)
+        # The session draft is a fresh value-equal object; write it back so the
+        # parse list and everything appended downstream (the pending-official /
+        # unresolved lists) share one object per position. Duplicate parsed
+        # foods compare equal, so only preserved object identity lets
+        # trace_candidate_index() attribute a later duplicate to its own
+        # position instead of the first equal one.
+        context.food_candidates[index] = candidate
         barcode_resolver = self.barcode_resolver
 
         if candidate.barcode and barcode_resolver is not None and barcode_resolver.enabled:
