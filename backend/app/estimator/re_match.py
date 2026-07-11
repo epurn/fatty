@@ -57,7 +57,12 @@ from app.estimator.fdc import (
     ProductFacts,
     build_fdc_client,
 )
-from app.estimator.food_serving import NutritionFacts, resolve_grams, scale_facts
+from app.estimator.food_serving import (
+    NutritionFacts,
+    ScaledNutrition,
+    resolve_grams,
+    scale_facts,
+)
 from app.estimator.off import OFF_SOURCE, OFF_SOURCE_TYPE
 from app.estimator.search import OFFICIAL_SOURCE, OFFICIAL_SOURCE_TYPE, sanitize_query
 from app.estimator.searched_reference import MODEL_PRIOR_SOURCE, MODEL_PRIOR_SOURCE_TYPE
@@ -143,6 +148,65 @@ class ReMatchNeedsClarification(Exception):
     def __init__(self, question: str) -> None:
         super().__init__("re-match cannot cost the current quantity")
         self.question = question
+
+
+def apply_resolved_facts(item: DerivedFoodItem, scaled: ScaledNutrition) -> None:
+    """Write a fresh source-backed estimate onto ``item`` (re-resolution semantics).
+
+    Sets the item ``resolved`` and overwrites its editable current
+    calories/macros/grams **and** re-snapshots the ``*_estimated`` originals to the
+    same newly-computed values. This is the deliberate divergence from the FTY-051
+    captured-once rule (which governs ``user_edit`` overrides): a re-resolution — a
+    "Change match" (FTY-093) or an exact-evidence apply (FTY-307) — is a new
+    estimate, so the estimated snapshot moves with it. Shared by both levers so the
+    write semantics cannot drift between them.
+    """
+
+    item.status = DerivedItemStatus.RESOLVED
+    item.grams = scaled.grams
+    item.calories = scaled.calories
+    item.protein_g = scaled.protein_g
+    item.carbs_g = scaled.carbs_g
+    item.fat_g = scaled.fat_g
+    item.calories_estimated = scaled.calories
+    item.protein_g_estimated = scaled.protein_g
+    item.carbs_g_estimated = scaled.carbs_g
+    item.fat_g_estimated = scaled.fat_g
+
+
+def record_re_match_correction(
+    session: Session,
+    item: DerivedFoodItem,
+    *,
+    old_calories: float | None,
+    new_calories: float,
+) -> Correction:
+    """Append the immutable ``re_match`` audit row that reconciles a prior edit.
+
+    A re-resolution is **not** a value override, so this row is tagged
+    :attr:`~app.enums.CorrectionSource.RE_MATCH`, never ``user_edit`` — the item is
+    still not ``user_edited``. Its purpose is twofold: it records the re-resolution in
+    the append-only audit trail (the calories change to the new source), and it
+    **supersedes** any prior ``user_edit`` so the FTY-092 ``is_edited`` read returns to
+    ``false`` (only an edit *after* this row counts). The marker is keyed on
+    ``calories``, the item's headline value; the full new numbers live on the item and
+    the rewritten ``evidence_sources`` snapshot. Shared by "Change match" (FTY-093) and
+    the exact-evidence apply (FTY-307), which the corrections contract fixes as the same
+    audit semantics. Added to ``session`` but not committed — the caller commits the
+    item update and this row together.
+    """
+
+    correction = Correction(
+        user_id=item.user_id,
+        item_type=CandidateType.FOOD,
+        derived_food_item_id=item.id,
+        field="calories",
+        old_value=old_calories,
+        new_value=new_calories,
+        source=CorrectionSource.RE_MATCH,
+    )
+    session.add(correction)
+    return correction
 
 
 @dataclass(frozen=True)
@@ -347,22 +411,11 @@ class ReMatchCapability:
         scaled = scale_facts(facts, grams)
 
         prior_calories = item.calories
-        item.status = DerivedItemStatus.RESOLVED
-        item.grams = scaled.grams
-        item.calories = scaled.calories
-        item.protein_g = scaled.protein_g
-        item.carbs_g = scaled.carbs_g
-        item.fat_g = scaled.fat_g
-        # A re-match is a fresh source-backed estimate, so the estimated/original
-        # snapshot is *reset* to the new source's computed values (not the FTY-051
-        # captured-once rule, which governs user_edit overrides).
-        item.calories_estimated = scaled.calories
-        item.protein_g_estimated = scaled.protein_g
-        item.carbs_g_estimated = scaled.carbs_g
-        item.fat_g_estimated = scaled.fat_g
-
+        apply_resolved_facts(item, scaled)
         self._rewrite_evidence(item, product)
-        self._record_re_match(item, old_calories=prior_calories, new_calories=scaled.calories)
+        record_re_match_correction(
+            self.session, item, old_calories=prior_calories, new_calories=scaled.calories
+        )
 
         self.session.commit()
         self.session.refresh(item)
@@ -456,33 +509,6 @@ class ReMatchCapability:
         evidence.fat_per_100g = product.fat_per_100g
         evidence.field_provenance = None
         evidence.assumptions = None
-
-    def _record_re_match(
-        self, item: DerivedFoodItem, *, old_calories: float | None, new_calories: float
-    ) -> None:
-        """Append the immutable ``re_match`` audit row that reconciles a prior edit.
-
-        A re-match is **not** a value override, so this row is tagged
-        :attr:`~app.enums.CorrectionSource.RE_MATCH`, never ``user_edit`` — the item is
-        still not ``user_edited``. Its purpose is twofold: it records the re-match in the
-        append-only audit trail (the calories change to the new source), and it
-        **supersedes** any prior ``user_edit`` so the FTY-092 ``is_edited`` read returns
-        to ``false`` (only an edit *after* this row counts). The marker is keyed on
-        ``calories``, the item's headline value; the full new numbers live on the item and
-        the rewritten ``evidence_sources`` snapshot.
-        """
-
-        self.session.add(
-            Correction(
-                user_id=item.user_id,
-                item_type=CandidateType.FOOD,
-                derived_food_item_id=item.id,
-                field="calories",
-                old_value=old_calories,
-                new_value=new_calories,
-                source=CorrectionSource.RE_MATCH,
-            )
-        )
 
     @staticmethod
     def _authorize(owner_id: uuid.UUID, current_user: User) -> None:

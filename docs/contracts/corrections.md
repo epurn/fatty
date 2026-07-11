@@ -343,4 +343,11 @@ value override, and the source-descriptor mapping).
   `re_match` row per apply, no `user_edit` row, `is_edited` derives `false` until
   a later manual override. The `is_edited` derivation rule above is untouched.
   Backend implementation is **FTY-307–FTY-309**; mobile consumption is
-  **FTY-310–FTY-313**.
+  **FTY-310–FTY-313**. **As built (FTY-307):** the generic exact-evidence apply
+  reuses the FTY-093 write helpers unchanged — the shared
+  `record_re_match_correction` appends the single `re_match` row (keyed on
+  `calories`, superseding any prior `user_edit`) and `apply_resolved_facts`
+  re-snapshots `*_estimated`. An optional apply-time amount adjustment is folded into
+  that one re-resolution (applied before the recompute), never recorded as a separate
+  `amount_adjust` / `user_edit` row, so an applied item reads `is_edited = false`
+  until a later manual override. No new `CorrectionSource` value and no schema change.
