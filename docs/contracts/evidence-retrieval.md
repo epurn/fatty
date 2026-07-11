@@ -63,8 +63,14 @@ official/reference evidence dead end, the resolver may spend the session's one
 bounded re-interpretation pass and re-query once before falling to `model_prior`,
 which receives only sanitized identity, bounded structured portion fields, and
 evidence-view records; its terminal trace adds `provider_error`,
-`low_confidence`, `non_resolved_disposition`, or `unusable_facts`. Source
-hierarchy, statuses, egress, schema, provenance, and retention rules are unchanged.
+`low_confidence`, `non_resolved_disposition`, or `unusable_facts`. As the
+transient model-facing half of that split, an unaccepted page/snippet read's own
+bounded FTY-314-framed inert text may reach the session's re-interpretation
+prompt at prompt-construction time — model boundary only, consumed by that one
+re-ask; it is never written to ledger records, traces, assumptions, source refs,
+persisted rows, or the model-prior prompt, and is never used to build a search
+query or fetch URL. Source hierarchy, statuses, egress, schema, provenance, and
+retention rules are unchanged.
 
 8 (FTY-348, contract only): relocates the global FTY-324 interpretation-loop framing
 to [interpretation-session.md](interpretation-session.md); page-local rules unchanged.
@@ -1034,6 +1040,11 @@ pre-FTY-314 fetch-only behavior exactly.
   sanitization as reference-search egress (never the raw transcription string),
   disposition, confidence, and facts basis. Raw snippet/page text and provider
   assumption strings still never enter the session ledger or model-prior prompt.
+  The unaccepted read's own bounded, FTY-314-framed snippet/page text is staged
+  transiently for the session's next re-interpretation prompt instead — the
+  permitted model surface for resolving an ambiguous read. It is consumed at
+  prompt-construction time and never persisted, traced, or echoed into a search
+  query or fetch URL.
 - No egress change: snippets arrive on the existing search response; this adds
   no browser automation, redirects, allowlist widening, or new fetch surface.
 

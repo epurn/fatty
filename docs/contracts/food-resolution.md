@@ -42,7 +42,10 @@ estimator / contracts / backend-core / security-privacy lane:
 19 (FTY-326): implements evidence tiers as session tools: sanitized tier outcomes
 feed the ledger, official/reference dead ends get one bounded re-query before
 `model_prior`, `not_applicable_by_session` replaces frozen generic skips, and
-model-prior failures add sanitized detail. No schema/DTO/source/egress change.
+model-prior failures add sanitized detail. An unaccepted page/snippet read's own
+bounded FTY-314-framed text transiently reaches the re-interpretation prompt
+only (never ledger/trace/persisted/query/fetch surfaces — see
+`evidence-retrieval.md`). No schema/DTO/source/egress change.
 
 18 (FTY-348, contract only): the global FTY-324 interpretation-session semantics
 (the model-owned/deterministic-owned division of labour and the

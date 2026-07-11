@@ -168,6 +168,17 @@ BeforeFetch = Callable[[str], None]
 #: outside the run-trace surface (e.g. user-text macro estimation) are unchanged.
 ObserveSearchDecision = Callable[..., None]
 
+#: Optional transient model-facing surface hook (FTY-326): called with keyword
+#: fields (``surface=…``, ``outcome=…``, ``text=…``) when a page/snippet
+#: extraction read is not accepted, carrying the same bounded inert text the
+#: extraction prompt saw so the interpretation session can stage it for its next
+#: re-interpretation prompt. Deliberately distinct from ``observe``: the
+#: decision-trace hook carries sanitized labels/refs only, while this seam
+#: carries surface text to the model boundary alone — the receiver must never
+#: write it to the trace, evidence ledger, assumptions, source refs, persisted
+#: rows, search queries, or fetch URLs. ``None`` (the default) stages nothing.
+StageEvidenceText = Callable[..., None]
+
 #: The ``surface`` labels an extract decision carries: the fetched page body vs.
 #: the bounded search-result title+snippet fallback (FTY-314).
 _PAGE_SURFACE = "page"
@@ -226,6 +237,7 @@ def searched_reference_per_100g(  # noqa: PLR0913 - shared provider/fetch/extrac
     accept_result: AcceptSearchedReference | None = None,
     allow_count_serving: bool = False,
     observe: ObserveSearchDecision | None = None,
+    stage_text: StageEvidenceText | None = None,
 ) -> SearchedReferenceFacts | None:
     """Return the first confident, plausible searched-reference per-100g facts.
 
@@ -237,6 +249,9 @@ def searched_reference_per_100g(  # noqa: PLR0913 - shared provider/fetch/extrac
     title+snippet (FTY-314) before moving to the next result. ``observe``, when
     supplied, receives one sanitized decision per search/source/fetch/extract
     outcome (FTY-255) — labels and refs only, never query, page, or snippet text.
+    ``stage_text``, when supplied, receives an unaccepted read's bounded inert
+    page/snippet text for the session's transient model-facing evidence view
+    (FTY-326) and nothing else.
     """
 
     result = search_provider.search(query)
@@ -282,6 +297,7 @@ def searched_reference_per_100g(  # noqa: PLR0913 - shared provider/fetch/extrac
                 accept_result=accept_result,
                 observe=observe,
                 surface=_PAGE_SURFACE,
+                stage_text=stage_text,
             )
         if found is None:
             # FTY-314: the page fetch failed, returned no usable text, or extracted
@@ -303,6 +319,7 @@ def searched_reference_per_100g(  # noqa: PLR0913 - shared provider/fetch/extrac
                     assumptions=(SNIPPET_ASSUMPTION,),
                     observe=observe,
                     surface=_SNIPPET_SURFACE,
+                    stage_text=stage_text,
                 )
             else:
                 _observe(
@@ -330,6 +347,7 @@ def _extract_accepted(  # noqa: PLR0913 - shared page/snippet extraction seam
     assumptions: tuple[str, ...] = (),
     observe: ObserveSearchDecision | None = None,
     surface: str = _PAGE_SURFACE,
+    stage_text: StageEvidenceText | None = None,
 ) -> SearchedReferenceFacts | None:
     """Extract + validate + accept one untrusted text surface; ``None`` if unusable.
 
@@ -351,6 +369,14 @@ def _extract_accepted(  # noqa: PLR0913 - shared page/snippet extraction seam
             evidence_desc=evidence_desc,
         )
 
+    def _stage_unaccepted_read(outcome: str) -> None:
+        # The current read's own bounded inert text, handed to the transient
+        # model-facing evidence view (FTY-326) so a re-interpretation call can
+        # resolve what the surface said. The sanitized descriptor above is what
+        # the ledger/trace keep; this text never reaches those surfaces.
+        if stage_text is not None:
+            stage_text(surface=surface, outcome=outcome, text=page_text)
+
     estimate, failure = _extract(
         provider=provider,
         page_text=page_text,
@@ -362,7 +388,9 @@ def _extract_accepted(  # noqa: PLR0913 - shared page/snippet extraction seam
         # schema-validated fields the transcriber stated; thread them as a
         # bounded descriptor so the session can interpret what the page or
         # snippet said, not just that the read failed (FTY-326).
-        _note(failure or "extract_unresolved", _unaccepted_read_desc(estimate))
+        outcome = failure or "extract_unresolved"
+        _note(outcome, _unaccepted_read_desc(estimate))
+        _stage_unaccepted_read(outcome)
         return None
     found = _searched_reference_from_facts(
         estimate.facts,
@@ -373,6 +401,7 @@ def _extract_accepted(  # noqa: PLR0913 - shared page/snippet extraction seam
     )
     if found is None:
         _note("extract_rejected_facts", _unaccepted_read_desc(estimate))
+        _stage_unaccepted_read("extract_rejected_facts")
         return None
     if accept_result is not None and not accept_result(found):
         # The gate itself records the specific rejection reason (it knows which

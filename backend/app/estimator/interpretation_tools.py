@@ -13,6 +13,7 @@ from __future__ import annotations
 from app.enums import CandidateType
 from app.estimator.interpretation import EvidenceRecord
 from app.estimator.pipeline import CandidateDraft, EstimationContext, StepError, StepFailed
+from app.estimator.searched_reference import StageEvidenceText
 from app.schemas.parse import ParsedCandidate
 
 INTERPRETATION_TIER = "interpretation_session"
@@ -62,6 +63,27 @@ def add_evidence_record(  # noqa: PLR0913 - mirrors the bounded evidence-view fi
             surface=None if surface is None else str(surface),
         )
     )
+
+
+def evidence_text_stager(context: EstimationContext, *, tier: str) -> StageEvidenceText:
+    """A tier-bound seam staging unaccepted-read page/snippet text on the session.
+
+    The transient model-facing half of the FTY-326 evidence split: the staged
+    text is bounded and FTY-314-framed by the session and reaches only its next
+    re-interpretation prompt — never the evidence ledger, run trace, persisted
+    rows, search queries, or fetch URLs, which keep the sanitized label
+    representation of the same read. A no-op without a session.
+    """
+
+    def _stage(*, surface: object, outcome: object, text: object) -> None:
+        session = context.interpretation_session
+        if session is None or not isinstance(text, str):
+            return
+        session.stage_evidence_text(
+            tier=tier, surface=str(surface), outcome=str(outcome), text=text
+        )
+
+    return _stage
 
 
 def current_food_candidate(

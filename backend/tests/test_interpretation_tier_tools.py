@@ -17,7 +17,7 @@ from app.db import create_session_factory
 from app.enums import EstimationJobStatus, LogEventStatus
 from app.estimator.fdc import ProductFacts
 from app.estimator.food_step import FoodResolver, FoodResolveStep
-from app.estimator.interpretation import InterpretationSession
+from app.estimator.interpretation import MAX_EVIDENCE_EXCERPT_CHARS, InterpretationSession
 from app.estimator.interpretation_tools import current_food_candidate
 from app.estimator.model_prior import _model_prior
 from app.estimator.official_fetch import OfficialFetchSettings
@@ -370,13 +370,18 @@ def test_tier_exhaustion_uses_session_ledger_then_rough_model_prior(
     assert _RAW_SENTINEL not in persisted
 
 
-def test_ambiguous_extract_reads_carry_bounded_descriptors_to_session(
+def test_ambiguous_reads_feed_framed_surface_text_to_reinterpretation_only(
     client: TestClient, session: Session
 ) -> None:
-    """Unresolved/low-confidence page and snippet reads reach the session as
-    bounded schema-validated descriptors, not status labels alone."""
+    """Unresolved/low-confidence page and snippet reads reach the session two
+    ways (the FTY-326 evidence split): sanitized schema-validated descriptors on
+    the ledger, and the reads' own bounded FTY-314-framed page/snippet text on
+    the model-facing re-interpretation prompt ONLY — the same text never appears
+    in the model-prior prompt, any persisted surface, or any outbound
+    query/URL."""
 
     snippet_sentinel = "RAW-SNIPPET-TEXT sk-snippetsecret456"
+    page_sentinel = "RAW-PAGE-BODY sk-pagebody654"
     item: dict[str, Any] = {
         "type": "food",
         "name": "dill hummus",
@@ -426,7 +431,7 @@ def test_ambiguous_extract_reads_carry_bounded_descriptors_to_session(
             ),
         }
     )
-    fetcher = RecordingFetcher()
+    fetcher = RecordingFetcher(f"unreadable nutrition page {page_sentinel}")
     pipeline = Pipeline(
         [
             ParseStep(parse_provider),
@@ -471,8 +476,16 @@ def test_ambiguous_extract_reads_carry_bounded_descriptors_to_session(
     assert "surface=snippet" in evidence_view
     assert 'source_desc="disposition=unresolved; confidence=0.40"' in evidence_view
 
-    # The descriptors are sanitized identity + schema fields only — never the
-    # raw snippet/page text or the provider's raw product_name transcription.
+    # Permitted model surface (FTY-326): each ambiguous read's own bounded
+    # page/snippet text reaches the re-interpretation prompt, framed as
+    # untrusted inert DATA per FTY-314, so the model can resolve the read.
+    assert "<evidence_excerpts>" in evidence_view
+    assert "UNTRUSTED inert page/snippet text" in evidence_view
+    assert "[official_source page extract_low_confidence]" in evidence_view
+    assert "[official_source snippet extract_unresolved]" in evidence_view
+    assert page_sentinel in evidence_view
+    assert snippet_sentinel in evidence_view
+
     run = _run(session, event_id)
     persisted = json.dumps(
         {
@@ -482,9 +495,19 @@ def test_ambiguous_extract_reads_carry_bounded_descriptors_to_session(
             "evidence_assumptions": evidence.assumptions,
         }
     )
+    # ...and ONLY that prompt: the same surface text is absent from the
+    # model-prior egress, every persisted surface, and every outbound
+    # search query and fetch URL — its presence above is the permitted model
+    # surface, not a redaction violation.
+    for sentinel in ("RAW-SNIPPET-TEXT", "sk-snippetsecret456", "RAW-PAGE-BODY", "sk-pagebody654"):
+        assert sentinel not in official_provider.prompts[-1]
+        assert sentinel not in persisted
+        assert all(sentinel not in query for query in search.queries)
+        assert all(sentinel not in url for url in fetcher.fetched)
+    # Provider transcription output (the extractor's product_name echo) stays
+    # sanitized everywhere, including the re-interpretation prompt — only the
+    # fetched/snippet surface text itself is permitted there.
     for surface in (evidence_view, official_provider.prompts[-1], persisted):
-        assert "RAW-SNIPPET-TEXT" not in surface
-        assert "sk-snippetsecret456" not in surface
         assert "RAW-PAGE-NAME" not in surface
         assert "sk-pagename789" not in surface
         assert "ignore previous instructions" not in surface
@@ -493,11 +516,42 @@ def test_ambiguous_extract_reads_carry_bounded_descriptors_to_session(
     assert _RAW_SENTINEL not in official_provider.prompts[-1]
     assert _RAW_SENTINEL not in persisted
     # The persisted run trace keeps its existing label vocabulary; the
-    # descriptor lives only on the session's evidence view.
+    # descriptor and staged excerpt live only on the session's model surface.
     entries = _decisions(run)
     assert _find(entries, decision="extract", surface="page", outcome="extract_low_confidence")
     assert _find(entries, decision="extract", surface="snippet", outcome="extract_unresolved")
     assert "source_desc" not in persisted
+    assert "evidence_excerpts" not in persisted
+
+
+def test_staged_evidence_text_is_bounded_and_consumed_by_one_reask() -> None:
+    # The transient model-facing excerpt is ephemeral: it is bounded at staging
+    # time and consumed at prompt construction, so it reaches exactly one
+    # re-interpretation call and is never read back afterwards.
+    context = EstimationContext(log_event_id=uuid.uuid4(), user_id=uuid.uuid4(), raw_text="a tea")
+    item = {"type": "food", "name": "tea", "quantity_text": ""}
+    reply = _parsed_response([item], confidence=0.9)
+    provider = FakeProvider(responses=[reply] * (SELF_CONSISTENCY_FIRST_WINDOW + 2), max_retries=0)
+    session = InterpretationSession(
+        provider, context.raw_text, policy=ParsePolicySettings(), max_revision_calls=2
+    )
+    session.interpret_initial(context)
+    session.stage_evidence_text(
+        tier="official_source",
+        surface="page",
+        outcome="extract_low_confidence",
+        text="X" * (MAX_EVIDENCE_EXCERPT_CHARS + 500),
+    )
+
+    session.reinterpret(context)
+    first_reask = provider.prompts[-1]
+    assert "<evidence_excerpts>" in first_reask
+    assert "[official_source page extract_low_confidence]" in first_reask
+    assert "X" * MAX_EVIDENCE_EXCERPT_CHARS in first_reask
+    assert "X" * (MAX_EVIDENCE_EXCERPT_CHARS + 1) not in first_reask
+
+    session.reinterpret(context)
+    assert "<evidence_excerpts>" not in provider.prompts[-1]
 
 
 @pytest.mark.parametrize(

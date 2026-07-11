@@ -58,6 +58,7 @@ from app.estimator.evidence_utils import _record_source_ref
 from app.estimator.interpretation_tools import (
     add_evidence_record,
     current_food_candidate,
+    evidence_text_stager,
     reinterpret_food_candidate,
 )
 from app.estimator.model_prior import _model_prior
@@ -386,6 +387,7 @@ class OfficialSourceResolveStep:
                 allow_count_serving=True,
                 accept_result=acceptance_gate(candidate, note),
                 observe=note,
+                stage_text=evidence_text_stager(context, tier=source_type),
             )
             if found is None:
                 continue
