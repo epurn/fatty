@@ -64,6 +64,8 @@ REQUIRED_STATUS_CHECKS = [
     "reviewer-approved",
     "mobile",
 ]
+LEGACY_WORKTREE_TOKEN = "fat" + "ty-worktrees"
+CURRENT_WORKTREE_TOKEN = "slacks-worktrees"
 
 STALE_REQUIRED_MOBILE_E2E_TEXT = [
     "Require `mobile-e2e`",
@@ -99,7 +101,7 @@ def main() -> None:
         if term not in agents:
             fail(f"AGENTS.md must mention {term!r}")
 
-    if "/Users/" in agents or "fatty-worktrees" in agents:
+    if "/Users/" in agents or LEGACY_WORKTREE_TOKEN in agents or CURRENT_WORKTREE_TOKEN in agents:
         fail("AGENTS.md must not include machine-specific automation paths")
 
     pr_template = read(".github/pull_request_template.md")

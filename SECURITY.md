@@ -1,6 +1,6 @@
 # Security Policy
 
-Fatty handles personal food, body, goal, and profile data. Security and privacy issues should be treated as product bugs.
+Slacks handles personal food, body, goal, and profile data. Security and privacy issues should be treated as product bugs.
 
 ## Reporting
 
@@ -16,4 +16,3 @@ This repository is private while the project is early. For now, report security 
 - Require review for security-sensitive changes.
 
 See `docs/security/security-baseline.md` and `docs/security/threat-model.md`.
-

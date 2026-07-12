@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+<!-- brand-guard: historical old-brand cutover release notes below; add new current entries above this marker. -->
+
 ### Breaking Changes
 
 - **Backend configuration prefix renamed `FATTY_*` → `SLACKS_*` (FTY-333).** The
