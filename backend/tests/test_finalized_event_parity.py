@@ -15,6 +15,9 @@ Fixtures (all on one local day, one owner):
   ``unresolved`` component) → counts;
 - an **initial ``processing``** event carrying a committed resolved item but no
   open question (the worker's two-commit completion window) → excluded;
+- a ``processing`` event with an open item-scoped question but **no committed
+  resolved sibling** (the committed-item half of the discriminator missing) →
+  excluded — the drift case the two renderings must reject identically;
 - a **voided** completed event with a committed resolved item → excluded.
 """
 
@@ -124,7 +127,39 @@ def _seed_fixtures(db_engine: Engine) -> dict[str, uuid.UUID]:
         session.flush()
         session.add(_resolved_food(user_id, initial.id, "banana"))
 
-        # 4. voided completed event with a committed resolved item → excluded.
+        # 4. processing event with an open item-scoped question but NO committed
+        #    resolved sibling (only an unresolved component) → excluded. This is the
+        #    drift case: the SQL predicate rejects it for the missing committed-item
+        #    half, so the Python id-set must reject it too or the two renderings drift.
+        question_only = LogEvent(
+            user_id=user_id,
+            raw_text="a mystery smoothie",
+            status=LogEventStatus.PROCESSING,
+            created_at=_DAY,
+        )
+        session.add(question_only)
+        session.flush()
+        question_only_unresolved = DerivedFoodItem(
+            log_event_id=question_only.id,
+            user_id=user_id,
+            name="smoothie",
+            quantity_text="",
+            status=DerivedItemStatus.UNRESOLVED,
+        )
+        session.add(question_only_unresolved)
+        session.flush()
+        session.add(
+            ClarificationQuestion(
+                log_event_id=question_only.id,
+                user_id=user_id,
+                question_text="What is in the smoothie?",
+                options=["berry", "green", "protein"],
+                derived_food_item_id=question_only_unresolved.id,
+                position=0,
+            )
+        )
+
+        # 5. voided completed event with a committed resolved item → excluded.
         voided = LogEvent(
             user_id=user_id,
             raw_text="cookie",
@@ -142,6 +177,7 @@ def _seed_fixtures(db_engine: Engine) -> dict[str, uuid.UUID]:
             "completed": completed.id,
             "partial_processing": partial.id,
             "initial_processing": initial.id,
+            "question_only_processing": question_only.id,
             "voided": voided.id,
         }
 
@@ -188,8 +224,9 @@ def test_sql_and_python_finalized_reads_select_the_same_events(db_engine: Engine
     expected = {ids["completed"], ids["partial_processing"]}
     assert sql_event_ids == expected
     assert python_event_ids == expected
-    # The two renderings agree — neither the first-pass processing nor the voided
-    # event surfaces on either surface.
+    # The two renderings agree — none of the first-pass processing, the
+    # question-only processing (open question but no committed sibling), or the
+    # voided event surfaces on either surface.
     assert sql_event_ids == python_event_ids
 
 
@@ -212,10 +249,16 @@ def test_scoped_processing_discriminator_renderings_agree(db_engine: Engine) -> 
         scoped_python = _scoped_reestimate_processing_ids(
             session,
             user_id,
-            [ids["partial_processing"], ids["initial_processing"]],
+            [
+                ids["partial_processing"],
+                ids["initial_processing"],
+                ids["question_only_processing"],
+            ],
         )
 
-    # Only the genuine scoped re-estimate qualifies; the first-pass processing
-    # event (committed rows, no open question) does not.
+    # Only the genuine scoped re-estimate qualifies. The first-pass processing
+    # event (committed rows, no open question) fails the question clause, and the
+    # question-only processing event (open question, no committed sibling) fails
+    # the committed-item clause — both renderings reject each identically.
     assert scoped_sql == {ids["partial_processing"]}
     assert scoped_python == {ids["partial_processing"]}

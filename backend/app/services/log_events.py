@@ -255,11 +255,13 @@ def list_entries_for_day(
     **or** on a ``processing`` event that is an answer-triggered scoped re-estimate
     of a previously-partial event, so a committed sibling never disappears from the
     timeline while the re-estimate is in flight. The scoped-``processing`` case is
-    discriminated by :func:`_scoped_reestimate_processing_ids` (an open item-scoped
-    question on a still-unresolved component), so a first-pass ``processing`` event —
-    which momentarily carries committed resolved rows during the worker's two-commit
-    completion window but owns no such question — surfaces nothing (nothing counts
-    early). The status set and the discriminator are the single-sourced
+    discriminated by :func:`_scoped_reestimate_processing_ids` (both a committed
+    resolved sibling and an open item-scoped question on a still-unresolved
+    component — the same two clauses the SQL rendering requires), so a first-pass
+    ``processing`` event — which momentarily carries committed resolved rows during
+    the worker's two-commit completion window but owns no such question — surfaces
+    nothing (nothing counts early). The status set and the discriminator are the
+    single-sourced
     :data:`~app.services.daily_summary_predicates._FINALIZED_EVENT_STATUSES` and
     :func:`~app.services.daily_summary_predicates._scoped_reestimate_processing_ids`.
     """
