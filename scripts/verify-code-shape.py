@@ -452,7 +452,7 @@ def fixture_baseline(
 
 
 def run_self_test() -> None:
-    with tempfile.TemporaryDirectory(prefix="fatty-code-shape-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="slacks-code-shape-") as tmp:
         root = Path(tmp)
         write(root / "mobile/state/Huge.ts", "\n".join(["export const x = 1;"] * 5) + "\n")
         write(

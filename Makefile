@@ -21,7 +21,7 @@ mobile:
 contracts:
 	@scripts/package-verify.sh contracts
 
-# Local v1 simulator-readiness smoke (FTY-250). Run BEFORE testing Fatty in an
+# Local v1 simulator-readiness smoke (FTY-250). Run BEFORE testing Slacks in an
 # iOS simulator: it verifies the running Compose stack is coherent (backend
 # images from one checkout, Alembic at head, API/worker/source health green) and
 # prints the exact simulator connect URL derived from `.env` `API_PORT`. It is

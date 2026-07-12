@@ -1,6 +1,6 @@
 # Contributing
 
-Fatty is built with security, privacy, consistency, and review as first-order requirements.
+Slacks is built with security, privacy, consistency, and review as first-order requirements.
 
 ## Workflow
 
@@ -28,4 +28,3 @@ Fatty is built with security, privacy, consistency, and review as first-order re
 ## Review
 
 Authoring and reviewing are separate phases. A PR cannot be merged on self-review. See `docs/review-policy.md`.
-
