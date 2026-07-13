@@ -50,6 +50,16 @@ def test_parse_leading_count_hits(text: str, expected: float) -> None:
         "1.5",  # a decimal is not a whole count
         "0",  # non-positive
         "60",  # beyond a casual count (MAX_BARE_COUNT)
+        # FTY-362 reviewer round 1: a *detail* numeral must not be misread as a
+        # serving count and lifted into amount.
+        "2% milk",  # fat percentage glued to %
+        "2 % milk",  # fat percentage across a space
+        "1/3",  # bare fraction
+        "1/3 cup",  # fraction with a household unit
+        "1 / 2 avocado",  # spaced fraction
+        "7up",  # product-number hint glued to letters
+        "v8",  # product-number hint (letters glued to digits)
+        "12ct",  # pack-count product token glued to letters
     ],
 )
 def test_parse_leading_count_misses(text: str) -> None:
@@ -163,9 +173,16 @@ def test_game_count_misses(text: str) -> None:
         (0.0, "", False),  # non-positive amount is not detail
         # Stated worded/household/indefinite portions count as detail (FTY-275),
         # even when the structured amount is empty.
-        (None, "1/3 cup", True),  # household measure
+        (None, "1/3 cup", True),  # household measure (via worded portion, not a count)
         (None, "a tsp of maple syrup", True),  # household + indefinite article
         (None, "2 tbsp", True),
+        # FTY-362 simulator retry phrasing: an approximate household portion is
+        # stated detail, so the amountless hummus resolves instead of looping/clarifying.
+        (None, "about 1 tbsp of pc dill pickle hummus", True),
+        # A detail numeral (fat percentage) is NOT a count: with the tightened
+        # recognizer, amountless "2% milk" carries no detail and still clarifies
+        # rather than being credited a fabricated serving count of 2.
+        (None, "2% milk", False),
         (None, "1 fl oz", True),  # "fl oz" tokenises to "fl"/"oz"; "fl" flags it
         (None, "a splash of milk", True),  # colloquial measure
         (None, "a drizzle of oil", True),

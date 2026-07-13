@@ -75,9 +75,28 @@ def parse_range_midpoint(quantity_text: str) -> tuple[float, float, float] | Non
 #: count and falls closed to the existing routing (rough tiers / clarification).
 MAX_BARE_COUNT: Final[float] = 50.0
 
-#: A standalone whole number, not glued to a decimal point, so a decimal such as
-#: "1.5" and the digits inside a measured "150 g" are never read as a bare count.
-_BARE_COUNT_RE: Final[re.Pattern[str]] = re.compile(r"(?<![\d.])(\d+)(?![\d.])")
+#: A *standalone* whole number — a count of pieces/servings — delimited by
+#: whitespace/punctuation on both sides, never glued to another character that
+#: makes it a product or detail numeral rather than a count:
+#:   * a decimal ("1.5") or the digits inside a measured "150 g" — the dot / digit
+#:     look-arounds keep those from being read as a bare count;
+#:   * a fat/detail percentage ("2% milk", "2 % milk") — a digit immediately (or
+#:     across spaces) followed by ``%`` is excluded;
+#:   * a fraction ("1/3", "1/3 cup") — a digit adjacent to ``/`` on either side is
+#:     excluded (the measured-portion path owns worded fractions);
+#:   * a product-number hint glued to letters ("7up", "v8") — a digit touching a
+#:     word character is excluded.
+#: A genuine count token ("4", "(i had 4)", "2 large", "4 toppables") is still
+#: matched because it is bounded by spaces or parentheses, not glued to any of the
+#: above.
+_BARE_COUNT_RE: Final[re.Pattern[str]] = re.compile(r"(?<![\w./])(\d+)(?![\w./]|\s*%)")
+
+#: A fraction ("1/3", "1 / 2") is a measured/detail portion, never a piece count.
+#: The token look-arounds already reject a *glued* fraction, but a spaced fraction
+#: ("1 / 2 avocado") strands a lone denominator that would otherwise read as a
+#: count, so the whole phrase is rejected when any numeric fraction is present. A
+#: non-numeric slash ("w/ hummus") has no digits around it and does not match.
+_FRACTION_RE: Final[re.Pattern[str]] = re.compile(r"\d+\s*/\s*\d+")
 
 
 def parse_leading_count(quantity_text: str) -> float | None:
@@ -90,9 +109,13 @@ def parse_leading_count(quantity_text: str) -> float | None:
     count reaches the count/common-portion/model-prior scaling instead of being
     silently dropped and re-asked. Returns ``None`` when the phrase already
     carries a measured mass/volume quantity (owned by the serving math), states a
-    numeric range (owned by :func:`parse_range_midpoint`), has no whole number,
-    or the number is non-positive or beyond a casual count
-    (:data:`MAX_BARE_COUNT`).
+    numeric range (owned by :func:`parse_range_midpoint`), carries only a *detail*
+    numeral rather than a count — a percentage ("2% milk"), a fraction ("1/3 cup"),
+    or a product-number hint glued to letters ("7up", "v8") — has no standalone
+    whole number, or the number is non-positive or beyond a casual count
+    (:data:`MAX_BARE_COUNT`). Only a whitespace/punctuation-delimited count token is
+    recovered (:data:`_BARE_COUNT_RE`), so a non-count detail numeral is never
+    lifted into ``amount``.
     """
 
     text = quantity_text or ""
@@ -101,6 +124,9 @@ def parse_leading_count(quantity_text: str) -> float | None:
         return None
     # A range resolves to a midpoint through its own deterministic path.
     if parse_range_midpoint(text) is not None:
+        return None
+    # A fraction ("1/3", "1 / 2") is a stated portion, not a piece count.
+    if _FRACTION_RE.search(text) is not None:
         return None
     match = _BARE_COUNT_RE.search(text)
     if match is None:
