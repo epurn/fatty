@@ -73,6 +73,7 @@ from app.estimator.pipeline import (
     label_pipeline,
 )
 from app.estimator.reference_fetch import load_reference_fetch_settings
+from app.estimator.run_budget import BudgetedProvider
 from app.estimator.search import build_search_provider
 from app.estimator.user_text_macro_estimator import UserTextMacroEstimator
 from app.estimator.user_text_step import UserTextResolveStep
@@ -90,7 +91,11 @@ from app.settings import load_settings
 
 #: Maximum number of estimation attempts before the job is marked ``failed``.
 #: Conservative default (one initial try plus two retries); tunable per the
-#: story's planning notes.
+#: story's planning notes. The distinct *per-run* provider-call / wall-clock
+#: ceiling (a run-scoped bound on total sequential provider work *within* one
+#: attempt, separate from this attempt-level retry bound) lives in
+#: ``run_budget.py`` — ``DEFAULT_MAX_PROVIDER_CALLS`` / ``DEFAULT_RUN_DEADLINE_SECONDS``
+#: (FTY-363), applied by wrapping the built provider in :class:`BudgetedProvider`.
 DEFAULT_MAX_ATTEMPTS = 3
 
 #: Exponential-backoff base, in seconds, between retries.
@@ -500,7 +505,9 @@ def process_estimation(
 
     if pipeline is None:
         app_settings = load_settings()
-        provider = build_provider(load_llm_settings())
+        # Bound this run's total sequential provider work (FTY-363): every step shares
+        # this one budgeted provider, so the whole attempt fails closed on breach.
+        provider = BudgetedProvider(build_provider(load_llm_settings()))
         if label_upload is not None:
             # A label event has an image, not NL text: extract it deterministically
             # rather than running the text parse pipeline.

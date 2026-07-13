@@ -35,6 +35,15 @@ estimator / backend-core / contracts lane:
 
 ## Version
 
+5 (FTY-363, descriptive; no schema change): the retry/terminal state machine gains
+a **per-run provider-call / wall-clock ceiling** — a run-scoped bound on total
+sequential provider work *within one attempt*, distinct from the attempt-level
+retries. A run that breaches it terminates `processing → failed` immediately as a
+`StepFailed`-class (deterministic, non-retryable) failure with a content-free
+reason, so a pathological input can no longer keep an event `processing` past the
+live smoke's poll window. No schema change; the attempt-level bounds are unchanged.
+See [Retry policy](#retry-policy).
+
 4 (FTY-255, additive): estimation runs record a **sanitized structured decision
 trace**. Alongside the coarse step labels, the food-resolution steps append
 bounded, sanitized decision entries to `estimation_runs.trace` — which source
@@ -306,6 +315,24 @@ surface (`docs/security/data-retention.md`, "Estimation runs").
 - **Idempotency key.** Derived from the log event id (`estimation_jobs` has a
   unique `log_event_id`), so there is exactly one job per event and a redelivered
   task is recognised rather than duplicated.
+- **Per-run provider-call / wall-clock ceiling (FTY-363).** A *distinct*,
+  **run-scoped** bound on the total sequential provider work **within one
+  attempt**, separate from the attempt-level retries above. The worker wraps the
+  run's provider so every LLM/provider call across all pipeline steps is counted
+  and time-checked; a run exceeding a total provider-call budget
+  (`DEFAULT_MAX_PROVIDER_CALLS`) or a wall-clock deadline
+  (`DEFAULT_RUN_DEADLINE_SECONDS`, an injectable-clock elapsed check, below the
+  live smoke's 90s poll window) terminates as a **`StepFailed`-class**
+  (deterministic, non-retryable) failure — `processing → failed` immediately, **no
+  additional attempt consumed** on the same input (a re-run would hit the same
+  bound). The failure reason is a fixed, content-free label
+  (`run_provider_call_budget_exceeded` / `run_wall_clock_deadline_exceeded`) — no
+  raw prompt, provider output, user text, or credential. This is a runaway-cost /
+  denial-of-service guard on the untrusted-input path, so failing closed on breach
+  is the security-preferred behaviour. Defaults live next to the retry constants
+  (`backend/app/estimator/run_budget.py`) and may be tuned like them. The
+  attempt-level retry bound, backoff schedule, and per-call rate-limit retry above
+  are unchanged.
 - These values are conservative documented defaults and may be tuned (story
   planning notes).
 
@@ -353,6 +380,7 @@ surface (`docs/security/data-retention.md`, "Estimation runs").
 | Transient step failure (`StepError`), retries remain | Run `failed`; job stays `running`; task retried with backoff. |
 | Transient step failure (`StepError`), bound reached | Run + job + event `failed`. |
 | Deterministic step failure (`StepFailed`) | Run + job + event `failed` immediately (no retry). |
+| Per-run ceiling breached (`StepFailed`-class, FTY-363: provider-call budget or wall-clock deadline) | Run + job + event `failed` immediately (no retry); content-free reason. |
 | Ambiguous input (`NeedsClarification`) | Run + job `needs_clarification`; event `needs_clarification` (nothing costed) or `partially_resolved` (costable siblings committed — FTY-278). Terminal for the worker; only the clarification resolve re-opens it — v2/v3. |
 
 ## Examples
