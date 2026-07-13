@@ -13,9 +13,47 @@ from app.estimator.detail_signals import (
     distance_km,
     game_count,
     has_food_detail,
+    parse_leading_count,
     parse_range_midpoint,
     step_count,
 )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("i had 4", 4.0),  # stranded parenthetical-style count (FTY-362)
+        ("(i had 4)", 4.0),
+        ("4", 4.0),
+        ("2 large", 2.0),  # count with a trailing size adjective
+        ("4 toppables brand crackers", 4.0),  # count with stranded product tokens
+    ],
+)
+def test_parse_leading_count_hits(text: str, expected: float) -> None:
+    assert parse_leading_count(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "some crackers",  # no number
+        "milk",
+        "a slice",  # worded portion, not a bare count
+        "100 grams",  # a measured mass is owned by the serving math, not a count
+        "100g",
+        "150 g",
+        "1 tbsp",  # a measured household volume, not a count
+        "about 1 tbsp",
+        "1tbsp",
+        "5-10",  # a range resolves through parse_range_midpoint, not here
+        "1.5",  # a decimal is not a whole count
+        "0",  # non-positive
+        "60",  # beyond a casual count (MAX_BARE_COUNT)
+    ],
+)
+def test_parse_leading_count_misses(text: str) -> None:
+    assert parse_leading_count(text) is None
 
 
 @pytest.mark.parametrize(
@@ -115,6 +153,11 @@ def test_game_count_misses(text: str) -> None:
         (3.0, "3 sandwiches", True),  # explicit count
         (None, "a handful (5-10)", True),  # range
         (1.0, "a slice", True),
+        # A bare count the model stranded in the phrase is detail (FTY-362), so a
+        # counted item is not re-asked for an amount it already stated.
+        (None, "i had 4", True),
+        (None, "(i had 4)", True),
+        (None, "2 large", True),
         (None, "some crackers", False),  # no amount signal
         (None, "", False),
         (0.0, "", False),  # non-positive amount is not detail

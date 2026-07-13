@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from typing import Final
 
+from app.estimator.food_serving import _grams_from_text
+
 # ---------------------------------------------------------------------------
 # Numeric ranges — "a handful (5-10) of onion rings".
 # A range is resolved to its arithmetic midpoint, a deterministic documented
@@ -58,6 +60,55 @@ def parse_range_midpoint(quantity_text: str) -> tuple[float, float, float] | Non
         return None
     midpoint = round((low + high) / 2.0, 3)
     return low, high, midpoint
+
+
+# ---------------------------------------------------------------------------
+# Bare counts — "(i had 4)", "4", "2 large".
+# A stated count with no measured unit is usable evidence — a count of pieces or
+# servings — so it is lifted into the structured ``amount`` when the model
+# stranded it in ``quantity_text`` and left ``amount`` empty. A measured quantity
+# ("100 g", "1 tbsp") is owned by the serving math and is never re-read as a
+# count here; a numeric range is owned by :func:`parse_range_midpoint`.
+# ---------------------------------------------------------------------------
+
+#: A casual counted log is a small whole number; a larger value is not a piece
+#: count and falls closed to the existing routing (rough tiers / clarification).
+MAX_BARE_COUNT: Final[float] = 50.0
+
+#: A standalone whole number, not glued to a decimal point, so a decimal such as
+#: "1.5" and the digits inside a measured "150 g" are never read as a bare count.
+_BARE_COUNT_RE: Final[re.Pattern[str]] = re.compile(r"(?<![\d.])(\d+)(?![\d.])")
+
+
+def parse_leading_count(quantity_text: str) -> float | None:
+    """Return a stated bare count from ``quantity_text``, or ``None``.
+
+    A "bare count" is a small whole number the user stated with no measured unit
+    — "(i had 4)", "4", "2 large" — i.e. a count of pieces or servings. It is
+    returned so a caller can lift it into the structured ``amount`` the model
+    left empty (:func:`app.estimator.parse._effective_candidate`), so a supplied
+    count reaches the count/common-portion/model-prior scaling instead of being
+    silently dropped and re-asked. Returns ``None`` when the phrase already
+    carries a measured mass/volume quantity (owned by the serving math), states a
+    numeric range (owned by :func:`parse_range_midpoint`), has no whole number,
+    or the number is non-positive or beyond a casual count
+    (:data:`MAX_BARE_COUNT`).
+    """
+
+    text = quantity_text or ""
+    # A measured quantity ("100 g", "1 tbsp") is the serving math's, not a count.
+    if _grams_from_text(text) is not None:
+        return None
+    # A range resolves to a midpoint through its own deterministic path.
+    if parse_range_midpoint(text) is not None:
+        return None
+    match = _BARE_COUNT_RE.search(text)
+    if match is None:
+        return None
+    value = float(match.group(1))
+    if value <= 0 or value > MAX_BARE_COUNT:
+        return None
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -282,16 +333,19 @@ def has_food_detail(amount: float | None, quantity_text: str) -> bool:
 
     ``True`` when the model supplied a positive structured ``amount`` (a count or a
     measured quantity), ``quantity_text`` states a numeric range (which resolves to a
-    midpoint), or ``quantity_text`` carries a stated worded portion — a household
-    measure, a colloquial measure word, or an indefinite-article measure (FTY-275). A
-    bare identity with no stated portion ("some crackers", "some milk", bare "milk")
-    returns ``False`` so it still routes to clarification.
+    midpoint), ``quantity_text`` states a bare count ("(i had 4)", "2 large") the
+    model stranded there, or ``quantity_text`` carries a stated worded portion — a
+    household measure, a colloquial measure word, or an indefinite-article measure
+    (FTY-275). A bare identity with no stated portion ("some crackers", "some milk",
+    bare "milk") returns ``False`` so it still routes to clarification.
     """
 
     if amount is not None and amount > 0:
         return True
     text = quantity_text or ""
     if parse_range_midpoint(text) is not None:
+        return True
+    if parse_leading_count(text) is not None:
         return True
     return _states_worded_portion(text)
 
