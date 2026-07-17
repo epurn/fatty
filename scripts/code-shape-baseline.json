@@ -82,6 +82,12 @@
     {
       "direction": "estimator_to_backend",
       "path": "backend/app/estimator/processing.py",
+      "module": "app.services.attachments",
+      "reason": "FTY-376 terminal purge: the worker hard-deletes an event's transient image rows (purge_transient_for_event, the FTY-375 backend-core seam) in the same transaction as the terminal status write (estimation-jobs.md v6, log-attachments.md v3) — the FTY-358 pattern of an estimator step calling a backend-core service within the worker path."
+    },
+    {
+      "direction": "estimator_to_backend",
+      "path": "backend/app/estimator/processing.py",
       "module": "app.services.log_events",
       "reason": "Existing event transition dependency at FTY-200 baseline."
     },
