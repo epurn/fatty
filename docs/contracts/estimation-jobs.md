@@ -45,7 +45,7 @@ is never terminal `failed`**. A per-run ceiling breach (FTY-363:
 interpreted food/exercise candidate the worker commits a rough,
 honestly-labelled estimate (`processing → completed`, or
 `processing → partially_resolved` when an open item-scoped question remains —
-`food-resolution.md` v21 owns the degraded provenance); with nothing
+`food-resolution.md` v22 owns the degraded provenance); with nothing
 interpreted the event stays in an honest still-working `processing` state with
 bounded, long-backoff auto-retry. The degrade write shares the terminal writes'
 atomicity/idempotency/sanitization invariants. Implemented downstream by
@@ -227,7 +227,7 @@ The worker reuses the FTY-030 `LEGAL_TRANSITIONS` map (it does not redefine it):
 | failed (retryable), retries remain | `failed` | `running` | _(stays `processing`)_ |
 | infra exhaustion (transient bound reached or per-run ceiling breach), **≥1 interpreted candidate** (FTY-370 degrade) | `completed` (or `needs_clarification` when an open item-scoped question remains) | `succeeded` (or `needs_clarification`) | `processing → completed` / `processing → partially_resolved` |
 | infra exhaustion (transient bound reached or per-run ceiling breach), **nothing interpreted** (FTY-370 still-working) | `failed` | `running` | _(stays `processing`; bounded long-backoff auto-retry)_ |
-| failed (deterministic non-food/empty input, `StepFailed`) | `failed` | `failed` | `processing → failed` (immediate, no retry) |
+| failed (deterministic non-food/empty input, or a fail-closed validation gate — `StepFailed`) | `failed` | `failed` | `processing → failed` (immediate, no retry) |
 
 The **run/job status is `needs_clarification` for both clarification outcomes** —
 it is the worker-terminal, awaiting-answer status, re-opened only by the
@@ -251,7 +251,7 @@ of failing:
 - **≥1 interpreted food/exercise candidate** (on the `EstimationContext` or the
   interpretation hypothesis): the worker commits a **rough, honestly-labelled
   estimate** for every interpreted-but-unresolved candidate — produced without
-  further provider budget (`food-resolution.md` v21, **Budget/transience-degraded
+  further provider budget (`food-resolution.md` v22, **Budget/transience-degraded
   rough estimates**) — and the event lands `completed`
   (`processing → completed`), or `partially_resolved`
   (`processing → partially_resolved`) when the terminal write also carries an
@@ -432,7 +432,7 @@ A decision entry carries `step`, `decision`, and a **closed** optional field set
 | `source_ref` | ref | Non-secret source reference (`usda_fdc:<fdcId>`, `official_source:<url>`); an embedded URL keeps **scheme/host/path only** — query string, fragment, and userinfo are dropped, and each remaining hostname label and path segment is redacted of secret-looking material (`key=…` pairs, provider-key prefixes, long opaque token blobs), so a token embedded in an untrusted result URL's subdomain or path never persists. |
 | `source_desc` | label | Bounded description of a **global** source row (e.g. the rejected FDC description) — global source data, never user text. |
 | `surface` | label | For `extract`: `page` (fetched body) or `snippet` (FTY-314 title+snippet fallback). |
-| `outcome` | label | Sanitized outcome, e.g. `accepted`, `accepted_snippet`, `miss`, `rejected_brand_mismatch`, `rejected_incompatible_row`, `rejected_unresolvable_quantity`, `rejected_incompatible_serving`, `deferred_to_web_evidence`, `clarified_quantity`, `clarified_unknown_food`, `clarified_barcode_unknown`, `unresolved_no_source`, `source_unavailable`, `search_disabled`, `search_unavailable`, `fetch_unconfigured`, `not_applicable_by_session`, `skipped_long_source_ref`, `fetch_ok`, `fetch_empty_text`, `fetch_<status>` (HTTP status, e.g. `fetch_403`), `fetch_policy_blocked`, `fetch_transient_error`, `fetch_response_error`, `extract_error`, `extract_unresolved`, `extract_low_confidence`, `extract_rejected_facts`, `snippet_unavailable`, `count_serving_scaled`, `default_serving_estimated`, `as_logged_total`, `requery_revised_identity`, `requery_identity_unchanged`, `requery_truncated`, `requery_<sanitized_step_reason>`, `model_prior_unavailable`, `model_prior_unusable`, and model-prior detail labels `provider_error`, `low_confidence`, `non_resolved_disposition`, `unusable_facts`. |
+| `outcome` | label | Sanitized outcome, e.g. `accepted`, `accepted_snippet`, `miss`, `rejected_brand_mismatch`, `rejected_incompatible_row`, `rejected_unresolvable_quantity`, `rejected_incompatible_serving`, `rejected_implausible_resolved_total`, `deferred_to_web_evidence`, `clarified_quantity`, `clarified_unknown_food`, `clarified_barcode_unknown`, `unresolved_no_source`, `source_unavailable`, `search_disabled`, `search_unavailable`, `fetch_unconfigured`, `not_applicable_by_session`, `skipped_long_source_ref`, `fetch_ok`, `fetch_empty_text`, `fetch_<status>` (HTTP status, e.g. `fetch_403`), `fetch_policy_blocked`, `fetch_transient_error`, `fetch_response_error`, `extract_error`, `extract_unresolved`, `extract_low_confidence`, `extract_rejected_facts`, `snippet_unavailable`, `count_serving_scaled`, `default_serving_estimated`, `as_logged_total`, `requery_revised_identity`, `requery_identity_unchanged`, `requery_truncated`, `requery_<sanitized_step_reason>`, `model_prior_unavailable`, `model_prior_unusable`, and model-prior detail labels `provider_error`, `low_confidence`, `non_resolved_disposition`, `unusable_facts`. |
 
 Sanitization and bounds (enforced at entry construction, defence in depth over
 the steps' own fixed vocabularies): labels are length-bounded,
@@ -485,7 +485,7 @@ surface (`docs/security/data-retention.md`, "Estimation runs").
   live smoke's 90s poll window) **stops all further provider work in that run
   and degrades** (FTY-370): with ≥1 interpreted candidate the run commits a
   rough, honestly-labelled estimate — produced **without further provider
-  budget** (`food-resolution.md` v21) — and terminates `processing → completed`
+  budget** (`food-resolution.md` v22) — and terminates `processing → completed`
   / `processing → partially_resolved`; with nothing interpreted the event stays
   in the honest still-working `processing` state with the bounded long-backoff
   auto-retry. A breach is **never** terminal `processing → failed`. The breach
