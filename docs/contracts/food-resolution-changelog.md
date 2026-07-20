@@ -19,6 +19,28 @@ estimator / contracts / backend-core / security-privacy lane (same owners as
 
 ## Version
 
+36 (FTY-424): the FDC candidate-ranking preference key demotes an **unstated
+identity-shifting modifier** — a leaf/green/seed or cabbage-family sense of the head
+noun the query did not ask for. The head-noun gate alone cannot separate the everyday
+food from these senses ("mustard" is a token in "Mustard, prepared, yellow", "Cabbage,
+mustard, salted", "Mustard greens", and "Mustard seed" alike), so after FTY-418 removed
+the oil form a bare "mustard" resolved to `usda_fdc:169891` "Cabbage, mustard, salted" (a
+leafy-green pickle) on relevance order alone. `fdc_ranking.py` adds a bounded
+`IDENTITY_SHIFTING_MODIFIER_TOKENS` vocabulary (`greens`/`green`/`leaf`/`leaves`/`seed`/
+`seeds`/`spinach`/`cabbage`), matched singular/plural-safe through the existing `_variants`
+rule, and folds its unstated-token count into the preference key's leading identity-modifier
+term alongside the FTY-388 part-of-food count: a row naming a modifier the query did not
+state ranks behind any plain compatible row, so bare "mustard" resolves to the
+prepared/condiment row while "mustard greens" / "mustard seed" keep their row through the
+same stated-token exemption. This is a **demotion, not a rejection** (a lone identity-shifting
+row still resolves) and deliberately **not** a leading-category / head-noun-position gate —
+category-led rows like "Fish, salmon" for `salmon` and "Cheese, mozzarella" for `mozzarella`
+are unaffected. A row with an unstated identity-shifting modifier is also never rank-stable,
+so a cached greens/seed/cabbage row for a bare query self-heals on the next lookup, exactly
+like the FTY-388 egg-white row. No schema, migration, DTO, or source-tier change: a bounded
+deterministic vocabulary over already-validated FDC description fields, in the same
+reject/demote design as FTY-254 and FTY-388.
+
 35 (FTY-428, contract only): the **User-Stated Resolution (FTY-279)** section (with
 all its subsections — the intro, `### Direct resolution from a stated total`, the
 `### Per-unit calorie anchors and the quantity modifier (FTY-419)`, the `### The
