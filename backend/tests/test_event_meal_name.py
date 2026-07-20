@@ -125,6 +125,27 @@ def test_single_food_event_falls_back_to_the_food_name_when_model_omits_it() -> 
     assert context.event_name == "banana"
 
 
+def test_multi_item_food_event_stays_null_when_model_omits_the_name() -> None:
+    provider = FakeProvider(
+        responses=_sampled(
+            _parsed(
+                [
+                    {"type": "food", "name": "crackers", "quantity_text": "6"},
+                    {"type": "food", "name": "peanut butter", "quantity_text": "1 tbsp"},
+                ]
+            )
+        )
+    )
+    context = _context("crackers and peanut butter")
+
+    ParseStep(provider).run(context)
+
+    # No model name and ≥2 food items: the single-food fallback does NOT fire, so the
+    # event stays null rather than inventing or copying one item's name onto the meal.
+    assert len(context.food_candidates) == 2
+    assert context.event_name is None
+
+
 def test_exercise_only_event_leaves_name_null_even_if_model_offers_one() -> None:
     provider = FakeProvider(
         responses=_sampled(
