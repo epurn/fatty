@@ -19,6 +19,18 @@ estimator / contracts / backend-core / security-privacy lane (same owners as
 
 ## Version
 
+34 (FTY-428, contract only): the **User-Stated Resolution (FTY-279)** section (with
+all its subsections — the intro, `### Direct resolution from a stated total`, the
+`### The no-second-follow-up rule (clarification boundary)`, the `### Worked example
+(the Sobeys wrap)`, and `### Security / Privacy`) was **extracted verbatim** from
+`food-resolution.md` into a new sibling page,
+[food-resolution-user-stated.md](food-resolution-user-stated.md), leaving a forwarding
+pointer behind under the original `##` heading and re-pointing the sibling-contract
+citations (`estimate-first-routing.md`, `evidence-retrieval.md`, this changelog) at
+the new page. Structure-only relocation of one settled `user_text` source-tier block —
+no wording, field, routing-rule, ordering, code-fence, example, schema, DTO, endpoint,
+or behaviour change.
+
 33 (FTY-426, contract only): the **Official-Source Fetch Boundary (FTY-078)** and
 **Official-Source Resolution (FTY-062)** sections (with all their subsections — the
 `OfficialFetchSettings` config, SSRF/egress policy, egress diagnostics; the
@@ -421,7 +433,7 @@ implausible** stated facts — not for a detail that merely was not the field th
 pipeline expected. No schema/migration/serving-math change in this story; the
 estimator work is the **downstream FTY-280 follow-up** and the FTY-278/FTY-275
 baseline ships until then. See **User-Stated Resolution (FTY-279)** in
-[food-resolution.md](food-resolution.md).
+[food-resolution-user-stated.md](food-resolution-user-stated.md).
 
 9 (FTY-278, contract only) **makes any remaining amount clarification
 item-scoped** instead of whole-entry-terminal, routing a mixed log to the new
